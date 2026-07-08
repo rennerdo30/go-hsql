@@ -31,6 +31,15 @@ func (w *RowOutput) WriteDataType(c ColumnType) {
 	w.WriteInt(c.Scale)
 }
 
+// WriteDataTypeSimple writes a code-only type descriptor, matching
+// ResultMetaData.writeDataTypeCodes.
+func (w *RowOutput) WriteDataTypeSimple(c ColumnType) {
+	w.WriteType(c.Code)
+	if c.IsArray() {
+		w.WriteType(c.BaseCode)
+	}
+}
+
 // ReadDataType reads a full per-column type descriptor (code [+ array base]
 // precision scale), matching ResultMetaData.readDataType.
 func (r *RowInput) ReadDataType() ColumnType {

@@ -59,6 +59,7 @@ Query parameters:
   Use `hsql.NewBlob(reader, length)` / `hsql.NewClob(reader, length)` for
   streaming binds; pass a negative length when the stream length is unknown.
 - Structured ARRAY parameters via `hsql.NewArray(...)`.
+- Native direct-SQL batch execution via `db.Conn(ctx).Raw` and `ExecBatch`.
 - **`LastInsertId`** via generated keys (works for `IDENTITY` columns on both
   direct and prepared inserts).
 - Column introspection via `sql.Rows.ColumnTypes()` (type name, scan type,
@@ -68,8 +69,8 @@ Query parameters:
 
 ## Compatibility limits
 
-- Batch execution — `database/sql` has no batch API, so batched inserts run as
-  sequential prepared-statement executions (the standard Go pattern).
+- Prepared-statement native batch execution is not exposed yet; use direct
+  `ExecBatch` or sequential prepared `Exec` calls.
 - Stored-procedure OUT parameters are not exposed as a first-class API.
   Ordinary `CALL` statements that return result sets or update counts use the
   normal query/exec paths.

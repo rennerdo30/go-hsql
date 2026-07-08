@@ -84,6 +84,7 @@ type Result struct {
 
 	// EXECUTE parameter values, aligned with ParamMeta.Types
 	ParamValues []any
+	BatchRows   [][]any
 
 	// Chained holds any additional Results the server sent after the main one
 	// in the same transmission (e.g. a GENERATED keys result following an
@@ -148,6 +149,15 @@ func (r *Result) EncodePayload(w *RowOutput) error {
 		if err := r.writeParams(w); err != nil {
 			return err
 		}
+	case ModeBatchExecDirect:
+		w.WriteInt(r.UpdateCount)
+		w.WriteInt(r.FetchSize)
+		w.WriteLong(r.StatementID)
+		w.WriteShort(r.QueryTimeout)
+		writeMetadata(w, r.Meta)
+		if err := r.writeSimpleRows(w); err != nil {
+			return err
+		}
 	case ModeEndTran:
 		w.WriteInt(r.TxType)
 		if r.TxType == TxSavepointNameRelease || r.TxType == TxSavepointNameRollback {
@@ -168,6 +178,45 @@ func (r *Result) EncodePayload(w *RowOutput) error {
 		w.WriteInt(r.FetchSize)
 	default:
 		return fmt.Errorf("hsql/proto: cannot encode request mode %d", r.Mode)
+	}
+	return nil
+}
+
+func writeMetadata(w *RowOutput, m *Metadata) {
+	if m == nil {
+		w.WriteInt(MetaSimpleResult)
+		w.WriteInt(0)
+		return
+	}
+	w.WriteInt(m.MetaType)
+	w.WriteInt(m.ColumnCount)
+	switch m.MetaType {
+	case MetaSimpleResult, MetaUpdateResult:
+		for _, t := range m.Types {
+			w.WriteDataTypeSimple(t)
+		}
+	default:
+		// Request encoding currently only needs simple/update metadata.
+	}
+}
+
+func (r *Result) writeSimpleRows(w *RowOutput) error {
+	if r.Meta == nil {
+		w.WriteInt(0)
+		return nil
+	}
+	n := int(r.Meta.ColumnCount)
+	w.WriteInt(int32(len(r.BatchRows)))
+	for _, row := range r.BatchRows {
+		for i := 0; i < n; i++ {
+			var v any
+			if i < len(row) {
+				v = row[i]
+			}
+			if err := w.WriteValue(r.Meta.Types[i], v); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

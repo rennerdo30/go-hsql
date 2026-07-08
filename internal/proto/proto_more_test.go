@@ -387,6 +387,15 @@ func TestEncodeRequestPayloads(t *testing.T) {
 		{Mode: ModeCloseResult, ID: 3},
 		{Mode: ModeFreeStmt, StatementID: 9},
 		{Mode: ModeSetConnectAttr, ConnectAttr: ConnectAttrSavepointName, SavepointName: "sp1"},
+		{
+			Mode: ModeBatchExecDirect,
+			Meta: &Metadata{
+				MetaType:    MetaSimpleResult,
+				ColumnCount: 1,
+				Types:       []ColumnType{{Code: SQLVarchar}},
+			},
+			BatchRows: [][]any{{"INSERT INTO t VALUES (1)"}},
+		},
 		{Mode: ModeRequestData, ID: 3, FetchSize: 10},
 		{Mode: ModeEndTran, TxType: TxCommit},
 		{Mode: ModeStartTran},

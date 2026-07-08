@@ -221,3 +221,44 @@ func TestRawSavepoints(t *testing.T) {
 		t.Fatalf("savepoint rollback left count=%d sum=%d, want 1/1", count, sum)
 	}
 }
+
+func TestRawExecBatch(t *testing.T) {
+	db := openDB(t)
+	c := ctx(t)
+	db.SetMaxOpenConns(1)
+
+	if _, err := db.ExecContext(c, "CREATE TABLE batch_t (n INTEGER)"); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	conn, err := db.Conn(c)
+	if err != nil {
+		t.Fatalf("conn: %v", err)
+	}
+	var counts []int64
+	if err := conn.Raw(func(dc any) error {
+		var err error
+		counts, err = dc.(interface {
+			ExecBatch(context.Context, []string) ([]int64, error)
+		}).ExecBatch(c, []string{
+			"INSERT INTO batch_t VALUES (1)",
+			"INSERT INTO batch_t VALUES (2)",
+			"UPDATE batch_t SET n = n + 10 WHERE n = 2",
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("exec batch: %v", err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatalf("conn close: %v", err)
+	}
+	if len(counts) != 3 || counts[0] != 1 || counts[1] != 1 || counts[2] != 1 {
+		t.Fatalf("batch counts = %v, want [1 1 1]", counts)
+	}
+	var count, sum int
+	if err := db.QueryRowContext(c, "SELECT COUNT(*), SUM(n) FROM batch_t").Scan(&count, &sum); err != nil {
+		t.Fatalf("aggregate: %v", err)
+	}
+	if count != 2 || sum != 13 {
+		t.Fatalf("batch table count=%d sum=%d, want 2/13", count, sum)
+	}
+}
