@@ -59,14 +59,24 @@ Query parameters:
 - **`LastInsertId`** via generated keys (works for `IDENTITY` columns on both
   direct and prepared inserts).
 - Column introspection via `sql.Rows.ColumnTypes()` (type name, scan type,
-  nullability).
+  nullability, length, decimal precision/scale).
 - Context cancellation / deadlines, and `ErrBadConn` handling for pool health.
 - Errors surface as `*hsql.Error` carrying `Message`, `SQLState`, `ErrorCode`.
 
-## Not yet implemented
+## Compatibility limits
 
 - Batch execution — `database/sql` has no batch API, so batched inserts run as
   sequential prepared-statement executions (the standard Go pattern).
+- Multiple result sets and stored-procedure OUT parameters are not exposed as a
+  first-class API. Ordinary `CALL` statements that return a result set or update
+  count use the normal query/exec paths.
+- Savepoints and two-phase commit have protocol constants but no driver-specific
+  public helper API.
+- `hsqls://` uses Go's default TLS configuration; custom root CAs, server names,
+  and insecure development TLS are not exposed in the DSN yet.
+- ARRAY result values scan as strings. Structured ARRAY parameter binding is not
+  exposed because `database/sql` does not pass arbitrary `[]any` values without a
+  driver-specific API.
 
 ## Development
 
