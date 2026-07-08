@@ -1,0 +1,13 @@
+# Vendored HSQLDB source + server jar (reference / integration-test only)
+.hsqldb/
+*.jar
+
+# Go build artifacts
+/bin/
+*.test
+*.out
+coverage.txt
+
+# Editor / OS / tooling cruft
+.DS_Store
+.claude/

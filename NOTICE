@@ -1,0 +1,19 @@
+go-hsql
+=======
+
+This is an independent, clean implementation of a Go database/sql driver for
+HSQLDB (HyperSQL). It contains no HSQLDB source code.
+
+The HSQLDB network wire protocol implemented here was studied from the HyperSQL
+project's source, which is distributed under a BSD 3-Clause license:
+
+    Copyright (c) 2001-2025, The HSQL Development Group
+    All rights reserved.
+    https://hsqldb.org/
+
+Protocol constants, message layouts, and type codes are functional facts of the
+wire format. No HyperSQL source is copied into or distributed with this driver.
+
+For development and testing, a local copy of the HyperSQL source and a compiled
+server jar may be placed under `.hsqldb/`; that directory is git-ignored and is
+not part of this project's distribution.
