@@ -129,6 +129,32 @@ func typeName(code proto.TypeCode) string {
 		return "TIMESTAMP"
 	case proto.SQLTimestampTZ:
 		return "TIMESTAMP WITH TIME ZONE"
+	case proto.SQLIntervalYear:
+		return "INTERVAL YEAR"
+	case proto.SQLIntervalMonth:
+		return "INTERVAL MONTH"
+	case proto.SQLIntervalDay:
+		return "INTERVAL DAY"
+	case proto.SQLIntervalHour:
+		return "INTERVAL HOUR"
+	case proto.SQLIntervalMinute:
+		return "INTERVAL MINUTE"
+	case proto.SQLIntervalSecond:
+		return "INTERVAL SECOND"
+	case proto.SQLIntervalYearToMonth:
+		return "INTERVAL YEAR TO MONTH"
+	case proto.SQLIntervalDayToHour:
+		return "INTERVAL DAY TO HOUR"
+	case proto.SQLIntervalDayToMinute:
+		return "INTERVAL DAY TO MINUTE"
+	case proto.SQLIntervalDayToSecond:
+		return "INTERVAL DAY TO SECOND"
+	case proto.SQLIntervalHourToMinute:
+		return "INTERVAL HOUR TO MINUTE"
+	case proto.SQLIntervalHourToSecond:
+		return "INTERVAL HOUR TO SECOND"
+	case proto.SQLIntervalMinuteToSecond:
+		return "INTERVAL MINUTE TO SECOND"
 	case proto.SQLBinary:
 		return "BINARY"
 	case proto.SQLVarbinary:
@@ -139,6 +165,12 @@ func typeName(code proto.TypeCode) string {
 		return "BLOB"
 	case proto.SQLClob:
 		return "CLOB"
+	case proto.SQLGuid:
+		return "UUID"
+	case proto.SQLArray:
+		return "ARRAY"
+	case proto.SQLOther:
+		return "OTHER"
 	default:
 		return "OTHER"
 	}
@@ -152,9 +184,15 @@ func scanType(code proto.TypeCode) reflect.Type {
 		return reflect.TypeOf(float64(0))
 	case proto.SQLBoolean:
 		return reflect.TypeOf(false)
-	case proto.SQLChar, proto.SQLVarchar, proto.SQLDecimal, proto.SQLNumeric:
+	case proto.SQLChar, proto.SQLVarchar, proto.SQLDecimal, proto.SQLNumeric,
+		proto.SQLIntervalYear, proto.SQLIntervalMonth, proto.SQLIntervalDay,
+		proto.SQLIntervalHour, proto.SQLIntervalMinute, proto.SQLIntervalSecond,
+		proto.SQLIntervalYearToMonth, proto.SQLIntervalDayToHour,
+		proto.SQLIntervalDayToMinute, proto.SQLIntervalDayToSecond,
+		proto.SQLIntervalHourToMinute, proto.SQLIntervalHourToSecond,
+		proto.SQLIntervalMinuteToSecond, proto.SQLArray:
 		return reflect.TypeOf("")
-	case proto.SQLBinary, proto.SQLVarbinary:
+	case proto.SQLBinary, proto.SQLVarbinary, proto.SQLGuid, proto.SQLOther:
 		return reflect.TypeOf([]byte(nil))
 	case proto.SQLDate, proto.SQLTime, proto.SQLTimeTZ, proto.SQLTimestamp, proto.SQLTimestampTZ:
 		return reflect.TypeOf(time.Time{})

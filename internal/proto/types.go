@@ -17,11 +17,7 @@ type ColumnType struct {
 
 // IsArray reports whether the type is a SQL array type. HSQLDB encodes an extra
 // base-type code for array columns.
-func (c ColumnType) IsArray() bool { return c.Code == sqlArray }
-
-// sqlArray is org.hsqldb.types.Types.SQL_ARRAY (used only to detect the extra
-// base-type descriptor on the wire).
-const sqlArray TypeCode = 2003
+func (c ColumnType) IsArray() bool { return c.Code == SQLArray }
 
 // WriteDataType writes a per-column type descriptor:
 //
@@ -109,6 +105,8 @@ func (w *RowOutput) WriteValue(c ColumnType, v any) error {
 		}
 	case SQLBinary, SQLVarbinary:
 		w.WriteBytes(asBytes(v))
+	case SQLGuid, SQLOther:
+		w.WriteBytes(asBytes(v))
 	case SQLBit, SQLBitVarying:
 		b := asBytes(v)
 		w.WriteInt(int32(len(b) * 8)) // bit length prefix, then raw bytes (no byte-len)
@@ -170,6 +168,8 @@ func (r *RowInput) ReadValue(c ColumnType) any {
 		return time.Unix(sec, int64(nanos)).In(loc)
 	case SQLBinary, SQLVarbinary:
 		return r.ReadBytes()
+	case SQLGuid, SQLOther:
+		return r.ReadBytes()
 	case SQLBit, SQLBitVarying:
 		bits := int(r.ReadInt())
 		n := (bits + 7) / 8
@@ -180,6 +180,14 @@ func (r *RowInput) ReadValue(c ColumnType) any {
 		copy(out, r.buf[r.pos:r.pos+n])
 		r.pos += n
 		return out
+	case SQLIntervalYear, SQLIntervalMonth, SQLIntervalYearToMonth:
+		return formatYearMonthInterval(c.Code, r.ReadLong())
+	case SQLIntervalDay, SQLIntervalHour, SQLIntervalMinute, SQLIntervalSecond,
+		SQLIntervalDayToHour, SQLIntervalDayToMinute, SQLIntervalDayToSecond,
+		SQLIntervalHourToMinute, SQLIntervalHourToSecond, SQLIntervalMinuteToSecond:
+		return formatDaySecondInterval(c.Code, r.ReadLong(), r.ReadInt())
+	case SQLArray:
+		return r.readArray(c)
 	case SQLClob, SQLBlob:
 		// LOBs are delivered as an int64 id; the driver resolves the payload via
 		// the LOB sub-protocol. Return a LobRef carrying the id.
@@ -244,6 +252,106 @@ func formatDecimal(unscaled *big.Int, scale int32) string {
 		out = "-" + out
 	}
 	return out
+}
+
+func formatYearMonthInterval(code TypeCode, months int64) string {
+	neg := months < 0
+	if neg {
+		months = -months
+	}
+	var out string
+	switch code {
+	case SQLIntervalYear:
+		out = fmt.Sprintf("%d", months/12)
+	case SQLIntervalMonth:
+		out = fmt.Sprintf("%d", months)
+	default:
+		out = fmt.Sprintf("%d-%02d", months/12, months%12)
+	}
+	if neg {
+		return "-" + out
+	}
+	return out
+}
+
+func formatDaySecondInterval(code TypeCode, seconds int64, nanos int32) string {
+	neg := seconds < 0 || nanos < 0
+	if neg {
+		seconds = -seconds
+		nanos = -nanos
+	}
+	days := seconds / secondsPerDay
+	rem := seconds % secondsPerDay
+	hours := rem / 3600
+	rem %= 3600
+	minutes := rem / 60
+	secs := rem % 60
+
+	secPart := fmt.Sprintf("%02d", secs)
+	if nanos != 0 {
+		frac := fmt.Sprintf("%09d", nanos)
+		frac = strings.TrimRight(frac, "0")
+		secPart += "." + frac
+	}
+
+	var out string
+	switch code {
+	case SQLIntervalDay:
+		out = fmt.Sprintf("%d", days)
+	case SQLIntervalHour:
+		out = fmt.Sprintf("%d", seconds/3600)
+	case SQLIntervalMinute:
+		out = fmt.Sprintf("%d", seconds/60)
+	case SQLIntervalSecond:
+		out = strings.TrimLeft(secPart, "0")
+		if strings.HasPrefix(out, ".") {
+			out = "0" + out
+		}
+		if out == "" {
+			out = "0"
+		}
+	case SQLIntervalDayToHour:
+		out = fmt.Sprintf("%d %02d", days, hours)
+	case SQLIntervalDayToMinute:
+		out = fmt.Sprintf("%d %02d:%02d", days, hours, minutes)
+	case SQLIntervalDayToSecond:
+		out = fmt.Sprintf("%d %02d:%02d:%s", days, hours, minutes, secPart)
+	case SQLIntervalHourToMinute:
+		out = fmt.Sprintf("%d:%02d", seconds/3600, minutes)
+	case SQLIntervalHourToSecond:
+		out = fmt.Sprintf("%d:%02d:%s", seconds/3600, minutes, secPart)
+	default:
+		out = fmt.Sprintf("%d:%s", seconds/60, secPart)
+	}
+	if neg {
+		return "-" + out
+	}
+	return out
+}
+
+func (r *RowInput) readArray(c ColumnType) string {
+	n := int(r.ReadInt())
+	if r.err != nil || n < 0 {
+		return ""
+	}
+	elemType := ColumnType{Code: c.BaseCode}
+	parts := make([]string, n)
+	for i := 0; i < n; i++ {
+		v := r.ReadValue(elemType)
+		if v == nil {
+			parts[i] = "NULL"
+			continue
+		}
+		switch x := v.(type) {
+		case []byte:
+			parts[i] = fmt.Sprintf("%x", x)
+		case string:
+			parts[i] = x
+		default:
+			parts[i] = fmt.Sprint(x)
+		}
+	}
+	return "[" + strings.Join(parts, ",") + "]"
 }
 
 // --- value coercion helpers (inputs come from database/sql driver values) ---

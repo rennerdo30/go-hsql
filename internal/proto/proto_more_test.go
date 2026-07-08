@@ -125,6 +125,48 @@ func TestBitValueRoundTrip(t *testing.T) {
 	}
 }
 
+func TestAdditionalValueTypes(t *testing.T) {
+	guid := []byte{0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0xfe, 0xdc, 0xba, 0x98, 0x76, 0x54, 0x32, 0x10}
+	w := NewRowOutput()
+	if err := w.WriteValue(ColumnType{Code: SQLGuid}, guid); err != nil {
+		t.Fatalf("write guid: %v", err)
+	}
+	if err := w.WriteValue(ColumnType{Code: SQLOther}, []byte{1, 2, 3}); err != nil {
+		t.Fatalf("write other: %v", err)
+	}
+	w.WriteU8(1)
+	w.WriteLong(14) // 1 year, 2 months
+	w.WriteU8(1)
+	w.WriteLong(3*secondsPerDay + 4*3600 + 5*60 + 6)
+	w.WriteInt(789000000)
+	w.WriteU8(1)
+	w.WriteInt(3)
+	for _, v := range []int32{1, 2, 3} {
+		w.WriteU8(1)
+		w.WriteInt(v)
+	}
+
+	r := NewRowInput(w.Bytes())
+	if got := r.ReadValue(ColumnType{Code: SQLGuid}); !bytes.Equal(got.([]byte), guid) {
+		t.Fatalf("guid = %x", got)
+	}
+	if got := r.ReadValue(ColumnType{Code: SQLOther}); !bytes.Equal(got.([]byte), []byte{1, 2, 3}) {
+		t.Fatalf("other = %x", got)
+	}
+	if got := r.ReadValue(ColumnType{Code: SQLIntervalYearToMonth}); got != "1-02" {
+		t.Fatalf("year-month interval = %v", got)
+	}
+	if got := r.ReadValue(ColumnType{Code: SQLIntervalDayToSecond}); got != "3 04:05:06.789" {
+		t.Fatalf("day-second interval = %v", got)
+	}
+	if got := r.ReadValue(ColumnType{Code: SQLArray, BaseCode: SQLInteger}); got != "[1,2,3]" {
+		t.Fatalf("array = %v", got)
+	}
+	if err := r.Err(); err != nil {
+		t.Fatalf("read additional types: %v", err)
+	}
+}
+
 func TestLOBValueReturnsRef(t *testing.T) {
 	// LOB params are encoded as server-side ids; reading returns a LobRef
 	// carrying the id and keeps the stream aligned.

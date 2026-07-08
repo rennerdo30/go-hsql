@@ -50,7 +50,7 @@ Query parameters:
 - Type mapping: INTEGER, BIGINT, SMALLINT, TINYINT, REAL/FLOAT/DOUBLE, BOOLEAN,
   CHAR/VARCHAR (Java modified-UTF-8, full Unicode), DECIMAL/NUMERIC (as string,
   arbitrary precision), DATE/TIME/TIMESTAMP (± time zone), BINARY/VARBINARY,
-  BIT. NULLs via `sql.Null*`.
+  BIT, UUID, INTERVAL, and ARRAY result values. NULLs via `sql.Null*`.
 - Reading **CLOB/BLOB** values (resolved via the `LARGE_OBJECT_OP` sub-protocol,
   fetched in chunks).
 - Writing **CLOB/BLOB** values via prepared-statement parameters.

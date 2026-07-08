@@ -122,6 +122,43 @@ func TestTemporalTypes(t *testing.T) {
 	}
 }
 
+func TestAdditionalTypes(t *testing.T) {
+	db := openDB(t)
+	c := ctx(t)
+
+	var uuid []byte
+	if err := db.QueryRowContext(c, "SELECT CAST('01234567-89ab-cdef-fedc-ba9876543210' AS UUID) FROM (VALUES(0))").Scan(&uuid); err != nil {
+		t.Fatalf("scan uuid: %v", err)
+	}
+	if fmt.Sprintf("%x", uuid) != "0123456789abcdeffedcba9876543210" {
+		t.Fatalf("uuid = %x", uuid)
+	}
+
+	var yearMonth string
+	if err := db.QueryRowContext(c, "SELECT INTERVAL '1-2' YEAR TO MONTH FROM (VALUES(0))").Scan(&yearMonth); err != nil {
+		t.Fatalf("scan year-month interval: %v", err)
+	}
+	if yearMonth != "1-02" {
+		t.Fatalf("year-month interval = %q", yearMonth)
+	}
+
+	var daySecond string
+	if err := db.QueryRowContext(c, "SELECT INTERVAL '3 04:05:06.789' DAY TO SECOND FROM (VALUES(0))").Scan(&daySecond); err != nil {
+		t.Fatalf("scan day-second interval: %v", err)
+	}
+	if daySecond != "3 04:05:06.789" {
+		t.Fatalf("day-second interval = %q", daySecond)
+	}
+
+	var array string
+	if err := db.QueryRowContext(c, "SELECT ARRAY[1, 2, 3] FROM (VALUES(0))").Scan(&array); err != nil {
+		t.Fatalf("scan array: %v", err)
+	}
+	if array != "[1,2,3]" {
+		t.Fatalf("array = %q", array)
+	}
+}
+
 func TestResultPaging(t *testing.T) {
 	// Force a small fetch size so the server returns rows in multiple blocks,
 	// exercising the REQUESTDATA paging path.
