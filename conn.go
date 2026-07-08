@@ -26,9 +26,10 @@ type conn struct {
 	lobIDSeq    int64
 	serverProps map[string]string
 
-	closed     bool
-	broken     bool // an I/O error or cancellation left the wire desynced
-	autocommit bool // true when not inside an explicit transaction
+	closed           bool
+	broken           bool // an I/O error or cancellation left the wire desynced
+	autocommit       bool // true when not inside an explicit transaction
+	txAlteredSession bool // current tx changed isolation/read-only; reset on finish
 }
 
 var (

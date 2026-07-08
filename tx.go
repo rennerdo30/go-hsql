@@ -43,11 +43,13 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 		if _, err := c.execCtx(ctx, c.newExecDirect("SET TRANSACTION ISOLATION LEVEL "+iso)); err != nil {
 			return nil, err
 		}
+		c.txAlteredSession = true
 	}
 	if opts.ReadOnly {
 		if _, err := c.execCtx(ctx, c.newExecDirect("SET TRANSACTION READ ONLY")); err != nil {
 			return nil, err
 		}
+		c.txAlteredSession = true
 	}
 	// Autocommit and commit/rollback use the binary protocol, matching the Java
 	// client's hot path.
@@ -74,13 +76,50 @@ func (t *tx) finish(txType int32) error {
 		// usable again.
 		_ = c.setSessionAttrBool(context.Background(), proto.AttrAutocommit, true)
 		c.autocommit = true
+		c.resetSessionCharacteristics()
 		return err
 	}
 	if err := c.setSessionAttrBool(context.Background(), proto.AttrAutocommit, true); err != nil {
 		return err
 	}
 	c.autocommit = true
+	c.resetSessionCharacteristics()
 	return nil
+}
+
+// resetSessionCharacteristics restores the connection's default isolation and
+// read-write mode after a transaction that changed them. HSQLDB applies some
+// SET TRANSACTION settings at the session level, so without this a pooled
+// connection could stay read-only or at the wrong isolation for the next user.
+//
+// READ UNCOMMITTED sets a sticky internal read-only-isolation flag that is only
+// cleared when the default isolation actually *changes* to a non-READ-UNCOMMITTED
+// level (Session.setIsolationDefault early-returns when the level is unchanged).
+// So we toggle the default through SERIALIZABLE and back to READ COMMITTED to
+// force the clear, then reset the explicit read-only flag. If any step fails the
+// connection may still be read-only, so mark it broken to drop it from the pool.
+func (c *conn) resetSessionCharacteristics() {
+	if !c.txAlteredSession || c.closed || c.broken {
+		return
+	}
+	c.txAlteredSession = false
+	bg := context.Background()
+	for _, err := range []error{
+		c.setSessionAttrInt(bg, proto.AttrIsolation, proto.TxSerializable),
+		c.setSessionAttrInt(bg, proto.AttrIsolation, proto.TxReadCommitted),
+		c.setSessionAttrBool(bg, proto.AttrConnectionReadonly, false),
+	} {
+		if err != nil {
+			c.broken = true
+			return
+		}
+	}
+}
+
+// setSessionAttrInt sets an integer session attribute via SETSESSIONATTR.
+func (c *conn) setSessionAttrInt(ctx context.Context, attrID, v int32) error {
+	_, err := c.execCtx(ctx, proto.NewSessionAttrRequest(attrID, &v, nil, nil))
+	return err
 }
 
 // endTran sends an ENDTRAN request (commit/rollback).
