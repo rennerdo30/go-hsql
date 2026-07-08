@@ -346,6 +346,31 @@ func TestDecodeUpdateCountAndError(t *testing.T) {
 	}
 }
 
+func TestDecodeCallResponse(t *testing.T) {
+	w := NewRowOutput()
+	w.WriteInt(0)    // updateCount
+	w.WriteInt(0)    // fetchSize
+	w.WriteLong(123) // statementID
+	w.WriteU8(StatementReturnResult)
+	w.WriteU8(DefaultRSProperties)
+	buildResultMetadata(w, []Column{{Type: ColumnType{Code: SQLInteger}, Label: "out"}})
+	w.WriteInt(1) // one simple row
+	if err := w.WriteValue(ColumnType{Code: SQLInteger}, int64(42)); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := DecodeResult(ModeCallResponse, w.Bytes())
+	if err != nil {
+		t.Fatalf("decode call response: %v", err)
+	}
+	if res.StatementID != 123 || res.Meta == nil || res.RowSet == nil || len(res.RowSet.Rows) != 1 {
+		t.Fatalf("call response fields = %+v", res)
+	}
+	if got := res.RowSet.Rows[0][0]; got != int64(42) {
+		t.Fatalf("call response row = %v", got)
+	}
+}
+
 func TestDecodeUnknownModeFails(t *testing.T) {
 	if _, err := DecodeResult(Mode(200), []byte{}); err == nil {
 		t.Fatal("expected error decoding unknown mode")

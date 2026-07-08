@@ -69,9 +69,9 @@ Query parameters:
 
 - Batch execution — `database/sql` has no batch API, so batched inserts run as
   sequential prepared-statement executions (the standard Go pattern).
-- Multiple result sets and stored-procedure OUT parameters are not exposed as a
-  first-class API. Ordinary `CALL` statements that return a result set or update
-  count use the normal query/exec paths.
+- Stored-procedure OUT parameters are not exposed as a first-class API.
+  Ordinary `CALL` statements that return result sets or update counts use the
+  normal query/exec paths.
 - Savepoints and two-phase commit have protocol constants but no driver-specific
   public helper API.
 - ARRAY result values scan as strings.

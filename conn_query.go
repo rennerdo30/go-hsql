@@ -70,8 +70,20 @@ func resultFromResponse(res *proto.Result) driver.Result {
 // rowsFromResponse builds a driver.Rows from an EXEC/EXECDIRECT response. A
 // non-result response (e.g. an update count) yields an empty, column-less Rows.
 func (c *conn) rowsFromResponse(res *proto.Result) driver.Rows {
-	if res.Mode == proto.ModeData || res.Mode == proto.ModeDataHead || res.Mode == proto.ModeGenerated {
+	if isRowsResult(res) {
 		return newRows(c, res)
 	}
 	return &rows{conn: c, done: true}
+}
+
+func isRowsResult(res *proto.Result) bool {
+	if res == nil {
+		return false
+	}
+	switch res.Mode {
+	case proto.ModeData, proto.ModeDataHead, proto.ModeGenerated, proto.ModeCallResponse:
+		return res.Meta != nil && res.RowSet != nil
+	default:
+		return false
+	}
 }

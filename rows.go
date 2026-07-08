@@ -19,12 +19,33 @@ type rows struct {
 	blockPos int     // index into block
 	absPos   int32   // absolute row index consumed so far
 	done     bool
+	next     []*proto.Result
 }
 
-var _ driver.Rows = (*rows)(nil)
+var (
+	_ driver.Rows              = (*rows)(nil)
+	_ driver.RowsNextResultSet = (*rows)(nil)
+)
 
 func newRows(c *conn, res *proto.Result) *rows {
 	r := &rows{conn: c, meta: res.Meta}
+	r.loadResult(res)
+	for _, chained := range res.Chained {
+		if isRowsResult(chained) {
+			r.next = append(r.next, chained)
+		}
+	}
+	return r
+}
+
+func (r *rows) loadResult(res *proto.Result) {
+	r.meta = res.Meta
+	r.resultID = 0
+	r.total = 0
+	r.block = nil
+	r.blockPos = 0
+	r.absPos = 0
+	r.done = false
 	if res.RowSet != nil {
 		r.resultID = res.RowSet.ID
 		r.total = res.RowSet.Size
@@ -33,7 +54,6 @@ func newRows(c *conn, res *proto.Result) *rows {
 	if r.meta == nil {
 		r.done = true
 	}
-	return r
 }
 
 // Columns returns the visible column labels.
@@ -117,6 +137,11 @@ func (r *rows) fetchMore() error {
 // dereference a nil map. So we close only when rows remain outstanding.
 func (r *rows) Close() error {
 	r.done = true
+	r.next = nil
+	return r.closeCurrent()
+}
+
+func (r *rows) closeCurrent() error {
 	if r.conn == nil || r.conn.closed || r.resultID == 0 {
 		return nil
 	}
@@ -127,4 +152,23 @@ func (r *rows) Close() error {
 	req.ID = r.resultID
 	_, err := r.conn.exec(req)
 	return err
+}
+
+// HasNextResultSet reports whether the server sent another chained result set.
+func (r *rows) HasNextResultSet() bool {
+	return len(r.next) > 0
+}
+
+// NextResultSet advances to the next chained result set, if any.
+func (r *rows) NextResultSet() error {
+	if len(r.next) == 0 {
+		return io.EOF
+	}
+	if err := r.closeCurrent(); err != nil {
+		return err
+	}
+	next := r.next[0]
+	r.next = r.next[1:]
+	r.loadResult(next)
+	return nil
 }

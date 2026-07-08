@@ -220,6 +220,14 @@ func DecodeResult(mode Mode, payload []byte) (*Result, error) {
 		r.RSProperties = in.ReadU8()
 		r.Meta = readMetadata(in)
 		r.ParamMeta = readMetadata(in)
+	case ModeCallResponse:
+		r.UpdateCount = in.ReadInt()
+		r.FetchSize = in.ReadInt()
+		r.StatementID = in.ReadLong()
+		r.StatementReturnType = in.ReadU8()
+		r.RSProperties = in.ReadU8()
+		r.Meta = readMetadata(in)
+		r.RowSet = readRowSetSimple(in, r.Meta)
 	case ModeBatchExecResponse:
 		r.UpdateCount = in.ReadInt()
 		r.FetchSize = in.ReadInt()
