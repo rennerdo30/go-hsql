@@ -266,5 +266,16 @@ func (c *conn) ResetSession(ctx context.Context) error {
 	if c.closed || c.broken {
 		return driver.ErrBadConn
 	}
+	// HSQLDB's native RESETSESSION also clears the server-side prepared
+	// statement manager, which breaks database/sql statements that survive pool
+	// reuse. Use SQL cleanup that preserves prepared statement ids.
+	if _, err := c.execCtx(ctx, c.newExecDirect("ROLLBACK")); err != nil {
+		return err
+	}
+	if _, err := c.execCtx(ctx, c.newExecDirect("SET AUTOCOMMIT TRUE")); err != nil {
+		return err
+	}
+	c.autocommit = true
+	c.lobIDSeq = -1
 	return nil
 }

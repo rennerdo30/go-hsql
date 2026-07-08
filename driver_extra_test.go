@@ -118,3 +118,44 @@ func TestConnPoolReuse(t *testing.T) {
 		t.Fatalf("n=%d sum=%d", n, sum)
 	}
 }
+
+func TestResetSessionRollsBackAndRestoresAutocommit(t *testing.T) {
+	db := openDB(t)
+	c := ctx(t)
+	db.SetMaxOpenConns(1)
+
+	if _, err := db.ExecContext(c, "CREATE TABLE reset_pool (n INTEGER)"); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	conn, err := db.Conn(c)
+	if err != nil {
+		t.Fatalf("conn: %v", err)
+	}
+	if _, err := conn.ExecContext(c, "SET AUTOCOMMIT FALSE"); err != nil {
+		t.Fatalf("set autocommit false: %v", err)
+	}
+	if _, err := conn.ExecContext(c, "INSERT INTO reset_pool VALUES (1)"); err != nil {
+		t.Fatalf("insert uncommitted: %v", err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatalf("close conn: %v", err)
+	}
+
+	var count int
+	if err := db.QueryRowContext(c, "SELECT COUNT(*) FROM reset_pool").Scan(&count); err != nil {
+		t.Fatalf("count after reset: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("reset did not roll back uncommitted row; count=%d", count)
+	}
+	if _, err := db.ExecContext(c, "INSERT INTO reset_pool VALUES (2)"); err != nil {
+		t.Fatalf("insert after reset: %v", err)
+	}
+	if err := db.QueryRowContext(c, "SELECT COUNT(*) FROM reset_pool").Scan(&count); err != nil {
+		t.Fatalf("final count: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("autocommit was not restored; count=%d", count)
+	}
+}
