@@ -1,6 +1,7 @@
 package hsql
 
 import (
+	"context"
 	"database/sql"
 	"testing"
 )
@@ -157,5 +158,66 @@ func TestResetSessionRollsBackAndRestoresAutocommit(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("autocommit was not restored; count=%d", count)
+	}
+}
+
+func TestRawSavepoints(t *testing.T) {
+	db := openDB(t)
+	c := ctx(t)
+	db.SetMaxOpenConns(1)
+
+	if _, err := db.ExecContext(c, "CREATE TABLE sp (n INTEGER)"); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	conn, err := db.Conn(c)
+	if err != nil {
+		t.Fatalf("conn: %v", err)
+	}
+
+	tx, err := conn.BeginTx(c, nil)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	if _, err := tx.ExecContext(c, "INSERT INTO sp VALUES (1)"); err != nil {
+		t.Fatalf("insert before savepoint: %v", err)
+	}
+	if err := conn.Raw(func(dc any) error {
+		return dc.(interface {
+			Savepoint(context.Context, string) error
+		}).Savepoint(c, "s1")
+	}); err != nil {
+		t.Fatalf("savepoint: %v", err)
+	}
+	if _, err := tx.ExecContext(c, "INSERT INTO sp VALUES (2)"); err != nil {
+		t.Fatalf("insert after savepoint: %v", err)
+	}
+	if err := conn.Raw(func(dc any) error {
+		return dc.(interface {
+			RollbackToSavepoint(context.Context, string) error
+		}).RollbackToSavepoint(c, "s1")
+	}); err != nil {
+		t.Fatalf("rollback to savepoint: %v", err)
+	}
+	if err := conn.Raw(func(dc any) error {
+		return dc.(interface {
+			ReleaseSavepoint(context.Context, string) error
+		}).ReleaseSavepoint(c, "s1")
+	}); err != nil {
+		t.Fatalf("release savepoint: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatalf("conn close: %v", err)
+	}
+
+	var count, sum int
+	if err := db.QueryRowContext(c, "SELECT COUNT(*), COALESCE(SUM(n), 0) FROM sp").Scan(&count, &sum); err != nil {
+		t.Fatalf("aggregate: %v", err)
+	}
+	if count != 1 || sum != 1 {
+		t.Fatalf("savepoint rollback left count=%d sum=%d, want 1/1", count, sum)
 	}
 }

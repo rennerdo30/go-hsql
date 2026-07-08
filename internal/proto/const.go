@@ -81,6 +81,11 @@ const (
 	TxRollbackAndChain      = 7
 )
 
+// SETCONNECTATTR attribute codes.
+const (
+	ConnectAttrSavepointName int32 = 10027
+)
+
 // Statement return types (org.hsqldb.StatementTypes). Written as the
 // statementReturnType byte in EXECDIRECT / PREPARE.
 const (

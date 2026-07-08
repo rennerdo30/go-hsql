@@ -47,6 +47,7 @@ Query parameters:
 - Direct statements (`db.Exec`, `db.Query`) and prepared statements with `?`
   parameters (`db.Prepare`, parameterized `Query`/`Exec`).
 - Transactions: `db.BeginTx` with commit/rollback, isolation levels, read-only.
+  Driver-specific savepoint helpers are available through `db.Conn(ctx).Raw`.
 - Result-set block paging via `REQUESTDATA` for large results.
 - Type mapping: INTEGER, BIGINT, SMALLINT, TINYINT, REAL/FLOAT/DOUBLE, BOOLEAN,
   CHAR/VARCHAR (Java modified-UTF-8, full Unicode), DECIMAL/NUMERIC (as string,
@@ -72,8 +73,8 @@ Query parameters:
 - Stored-procedure OUT parameters are not exposed as a first-class API.
   Ordinary `CALL` statements that return result sets or update counts use the
   normal query/exec paths.
-- Savepoints and two-phase commit have protocol constants but no driver-specific
-  public helper API.
+- Two-phase commit has protocol constants but no driver-specific public helper
+  API.
 - ARRAY result values scan as strings.
 
 ## Development

@@ -75,6 +75,7 @@ type Result struct {
 	// transactions
 	TxType        int32
 	SavepointName string
+	ConnectAttr   int32
 
 	// data
 	Meta      *Metadata
@@ -156,6 +157,11 @@ func (r *Result) EncodePayload(w *RowOutput) error {
 		w.WriteLong(r.ID)
 	case ModeFreeStmt:
 		w.WriteLong(r.StatementID)
+	case ModeSetConnectAttr:
+		w.WriteInt(r.ConnectAttr)
+		if r.ConnectAttr == ConnectAttrSavepointName {
+			w.WriteString(r.SavepointName)
+		}
 	case ModeRequestData:
 		w.WriteLong(r.ID)
 		w.WriteInt(r.UpdateCount) // row offset to resume from

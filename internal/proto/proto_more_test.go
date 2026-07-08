@@ -386,6 +386,7 @@ func TestEncodeRequestPayloads(t *testing.T) {
 		{Mode: ModePrepare, SQL: "SELECT ?"},
 		{Mode: ModeCloseResult, ID: 3},
 		{Mode: ModeFreeStmt, StatementID: 9},
+		{Mode: ModeSetConnectAttr, ConnectAttr: ConnectAttrSavepointName, SavepointName: "sp1"},
 		{Mode: ModeRequestData, ID: 3, FetchSize: 10},
 		{Mode: ModeEndTran, TxType: TxCommit},
 		{Mode: ModeStartTran},
