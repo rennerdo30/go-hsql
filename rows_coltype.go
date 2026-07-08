@@ -38,11 +38,21 @@ func (r *rows) ColumnTypeNullable(index int) (nullable, ok bool) {
 	if r.meta == nil || index >= len(r.meta.Columns) {
 		return false, false
 	}
-	// Column nullability is bits 0-1 of the attribute byte: 1 == NO NULLS,
-	// 2 == NULLABLE (java.sql.ResultSetMetaData constants).
-	const columnNoNulls = 1
-	attr := r.meta.Columns[index].Attrs & 0x03
-	return attr != columnNoNulls, true
+	// Nullability is bits 0-1 of the attribute byte, using java.sql
+	// ResultSetMetaData constants: 0 = columnNoNulls, 1 = columnNullable,
+	// 2 = columnNullableUnknown.
+	const (
+		columnNoNulls  = 0
+		columnNullable = 1
+	)
+	switch r.meta.Columns[index].Attrs & 0x03 {
+	case columnNoNulls:
+		return false, true
+	case columnNullable:
+		return true, true
+	default:
+		return false, false // unknown
+	}
 }
 
 func typeName(code proto.TypeCode) string {

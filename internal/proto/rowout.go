@@ -87,15 +87,6 @@ func (w *RowOutput) WriteDecimal(unscaled *big.Int, scale int32) {
 	w.WriteInt(scale)
 }
 
-// PatchInt overwrites 4 bytes at position pos with a big-endian int32. Used to
-// backfill a frame's length field once the payload size is known.
-func (w *RowOutput) PatchInt(pos int, v int32) {
-	w.buf[pos] = byte(v >> 24)
-	w.buf[pos+1] = byte(v >> 16)
-	w.buf[pos+2] = byte(v >> 8)
-	w.buf[pos+3] = byte(v)
-}
-
 // encodeModifiedUTF8 encodes s using Java's modified UTF-8: U+0000 is written as
 // 0xC0 0x80, code points above U+FFFF are written as a UTF-16 surrogate pair with
 // each surrogate encoded as three bytes (CESU-8 style). ASCII is unchanged.

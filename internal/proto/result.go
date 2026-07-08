@@ -83,10 +83,35 @@ type Result struct {
 
 	// EXECUTE parameter values, aligned with ParamMeta.Types
 	ParamValues []any
+
+	// Chained holds any additional Results the server sent after the main one
+	// in the same transmission (e.g. a GENERATED keys result following an
+	// UPDATECOUNT). Populated by the connection layer as it drains the stream.
+	Chained []*Result
 }
 
 // NewResult returns a Result with the given mode.
 func NewResult(mode Mode) *Result { return &Result{Mode: mode} }
+
+// GeneratedKey returns the first generated key value from a chained GENERATED
+// result, if present. Used for LastInsertId after an INSERT that requested
+// generated keys.
+func (r *Result) GeneratedKey() (int64, bool) {
+	for _, c := range r.Chained {
+		if c.Mode != ModeGenerated || c.RowSet == nil || len(c.RowSet.Rows) == 0 {
+			continue
+		}
+		row := c.RowSet.Rows[0]
+		if len(row) == 0 {
+			continue
+		}
+		switch v := row[0].(type) {
+		case int64:
+			return v, true
+		}
+	}
+	return 0, false
+}
 
 // EncodePayload writes the mode-specific payload (everything after the frame's
 // mode byte and length field) for a request Result.

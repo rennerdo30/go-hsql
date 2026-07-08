@@ -70,7 +70,16 @@ func (r *rows) Next(dest []driver.Value) error {
 		n = len(r.meta.Columns)
 	}
 	for i := 0; i < n; i++ {
-		dest[i] = driver.Value(row[i])
+		v := row[i]
+		if ref, ok := v.(proto.LobRef); ok {
+			// Resolve the LOB payload on demand.
+			resolved, err := r.conn.fetchLob(ref)
+			if err != nil {
+				return err
+			}
+			v = resolved
+		}
+		dest[i] = driver.Value(v)
 	}
 	return nil
 }

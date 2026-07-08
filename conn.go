@@ -142,9 +142,11 @@ func (c *conn) receive() (*proto.Result, error) {
 		if m2 == proto.ModeNone {
 			break
 		}
-		if _, err := proto.DecodeResult(m2, p2); err != nil {
+		chained, err := proto.DecodeResult(m2, p2)
+		if err != nil {
 			return nil, err
 		}
+		main.Chained = append(main.Chained, chained)
 	}
 	return main, nil
 }

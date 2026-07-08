@@ -177,11 +177,9 @@ func (r *RowInput) ReadValue(c ColumnType) any {
 		r.pos += n
 		return out
 	case SQLClob, SQLBlob:
-		// LOBs are delivered as an int64 id resolved via a separate LOB
-		// protocol (LARGE_OBJECT_OP), not yet implemented. Consume the id to
-		// keep the stream aligned; surface the value as nil for now.
-		_ = r.ReadLong()
-		return nil
+		// LOBs are delivered as an int64 id; the driver resolves the payload via
+		// the LOB sub-protocol. Return a LobRef carrying the id.
+		return LobRef{ID: r.ReadLong(), IsClob: c.Code == SQLClob}
 	default:
 		// Unknown type: we cannot know its length, so flag the stream as
 		// broken rather than silently desyncing.

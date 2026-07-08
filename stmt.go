@@ -16,7 +16,9 @@ func (c *conn) PrepareContext(ctx context.Context, query string) (driver.Stmt, e
 	req := proto.NewResult(proto.ModePrepare)
 	req.SQL = query
 	req.StatementReturnType = proto.StatementReturnAny
-	req.GenerateKeys = proto.ReturnNoGeneratedKeys
+	// Request generated keys so a prepared INSERT can report LastInsertId. The
+	// server ignores this for statements that produce no keys.
+	req.GenerateKeys = proto.ReturnGeneratedKeys
 	res, err := c.execCtx(ctx, req)
 	if err != nil {
 		return nil, err

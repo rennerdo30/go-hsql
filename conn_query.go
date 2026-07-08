@@ -17,7 +17,9 @@ func (c *conn) ExecContext(ctx context.Context, query string, args []driver.Name
 	if c.closed || c.broken {
 		return nil, driver.ErrBadConn
 	}
-	res, err := c.execCtx(ctx, c.newExecDirect(query))
+	req := c.newExecDirect(query)
+	req.GenerateKeys = proto.ReturnGeneratedKeys // enable LastInsertId
+	res, err := c.execCtx(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -51,15 +53,18 @@ func (c *conn) newExecDirect(query string) *proto.Result {
 	return req
 }
 
-// resultFromResponse builds a driver.Result from an EXEC/EXECDIRECT response.
+// resultFromResponse builds a driver.Result from an EXEC/EXECDIRECT response,
+// capturing any generated key for LastInsertId.
 func resultFromResponse(res *proto.Result) driver.Result {
-	switch res.Mode {
-	case proto.ModeUpdateCount:
-		return &execResult{rowsAffected: int64(res.UpdateCount)}
-	default:
-		// A DATA or other response to an Exec: no update count available.
-		return &execResult{rowsAffected: 0}
+	r := &execResult{}
+	if res.Mode == proto.ModeUpdateCount {
+		r.rowsAffected = int64(res.UpdateCount)
 	}
+	if key, ok := res.GeneratedKey(); ok {
+		r.lastInsertID = key
+		r.hasLastID = true
+	}
+	return r
 }
 
 // rowsFromResponse builds a driver.Rows from an EXEC/EXECDIRECT response. A

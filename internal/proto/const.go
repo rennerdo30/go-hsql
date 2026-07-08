@@ -108,6 +108,36 @@ const (
 	BatchSuccessNoInfo = -2
 )
 
+// LOB operation sub-types (org.hsqldb.result.ResultLob.LobResultTypes). These
+// are carried in a LARGE_OBJECT_OP (mode 18) frame, which uses its own framing
+// (no length prefix): mode, int32 databaseID, int64 sessionID, int64 lobID,
+// int32 subType, then sub-type-specific fields, then a NONE terminator byte.
+const (
+	LobReqGetBytes    int32 = 1
+	LobReqSetBytes    int32 = 2
+	LobReqGetChars    int32 = 3
+	LobReqSetChars    int32 = 4
+	LobReqCreateBytes int32 = 7
+	LobReqCreateChars int32 = 8
+	LobReqGetLength   int32 = 10
+	LobReqGetLob      int32 = 11
+
+	LobRespGetBytes    int32 = 21
+	LobRespSet         int32 = 22
+	LobRespGetChars    int32 = 23
+	LobRespCreateBytes int32 = 27
+	LobRespCreateChars int32 = 28
+	LobRespTruncate    int32 = 29
+)
+
+// LobRef is returned by ReadValue for a CLOB/BLOB column. It carries the
+// server-side LOB id; the driver resolves it to bytes/string via the LOB
+// sub-protocol. IsClob distinguishes character LOBs (UTF-16 chars) from binary.
+type LobRef struct {
+	ID     int64
+	IsClob bool
+}
+
 // ResultSet property defaults. rsProperties is a bit-packed byte; 0 corresponds
 // to the common forward-only / read-only / hold-cursors-over-commit case that
 // the reference client uses for ordinary statements.

@@ -6,10 +6,11 @@ TCP (`hsql://` and `hsqls://`). No JDBC, no CGo, no external dependencies — it
 talks the wire protocol directly.
 
 > **Status: alpha (v0).** The common path — connect, query, prepared
-> statements, transactions, the standard SQL types, and result paging — is
-> implemented and tested end-to-end against HSQLDB 2.7.4. LOB streaming, batch
-> execution, and `LastInsertId` are not yet supported (see below). APIs and
-> behavior may change. Try it, report issues; don't bet production on it yet.
+> statements, transactions, the standard SQL types, result paging, generated
+> keys (`LastInsertId`), and reading CLOB/BLOB values — is implemented and tested
+> end-to-end against HSQLDB 2.7.4. Writing LOBs via bound parameters is not yet
+> supported (see below). APIs and behavior may change. Try it, report issues;
+> don't bet production on it yet.
 
 ```go
 import (
@@ -51,17 +52,21 @@ Query parameters:
   CHAR/VARCHAR (Java modified-UTF-8, full Unicode), DECIMAL/NUMERIC (as string,
   arbitrary precision), DATE/TIME/TIMESTAMP (± time zone), BINARY/VARBINARY,
   BIT. NULLs via `sql.Null*`.
-- Column introspection via `sql.Rows.ColumnTypes()`.
+- Reading **CLOB/BLOB** values (resolved via the `LARGE_OBJECT_OP` sub-protocol,
+  fetched in chunks).
+- **`LastInsertId`** via generated keys (works for `IDENTITY` columns on both
+  direct and prepared inserts).
+- Column introspection via `sql.Rows.ColumnTypes()` (type name, scan type,
+  nullability).
+- Context cancellation / deadlines, and `ErrBadConn` handling for pool health.
 - Errors surface as `*hsql.Error` carrying `Message`, `SQLState`, `ErrorCode`.
 
 ## Not yet implemented
 
-- LOBs (CLOB/BLOB) are read as their server-side id and surfaced as `NULL`;
-  streaming the payload (the `LARGE_OBJECT_OP` sub-protocol) is future work.
-- Batch execution (`BATCHEXECUTE`) — `database/sql` has no batch API; the wire
-  support is decoded but not exposed.
-- `LastInsertId` requires an explicit generated-keys request; use `IDENTITY()`
-  or a `RETURNING` clause instead.
+- **Writing** LOBs via bound parameters (the LOB *create* flow). You can still
+  insert LOBs using SQL literals; reading LOBs is fully supported.
+- Batch execution — `database/sql` has no batch API, so batched inserts run as
+  sequential prepared-statement executions (the standard Go pattern).
 
 ## Development
 
