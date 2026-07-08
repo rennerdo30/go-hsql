@@ -7,10 +7,9 @@ talks the wire protocol directly.
 
 > **Status: alpha (v0).** The common path — connect, query, prepared
 > statements, transactions, the standard SQL types, result paging, generated
-> keys (`LastInsertId`), and reading CLOB/BLOB values — is implemented and tested
-> end-to-end against HSQLDB 2.7.4. Writing LOBs via bound parameters is not yet
-> supported (see below). APIs and behavior may change. Try it, report issues;
-> don't bet production on it yet.
+> keys (`LastInsertId`), and reading/writing CLOB/BLOB values — is implemented
+> and tested end-to-end against HSQLDB 2.7.4. APIs and behavior may change. Try
+> it, report issues; don't bet production on it yet.
 
 ```go
 import (
@@ -54,6 +53,7 @@ Query parameters:
   BIT. NULLs via `sql.Null*`.
 - Reading **CLOB/BLOB** values (resolved via the `LARGE_OBJECT_OP` sub-protocol,
   fetched in chunks).
+- Writing **CLOB/BLOB** values via prepared-statement parameters.
 - **`LastInsertId`** via generated keys (works for `IDENTITY` columns on both
   direct and prepared inserts).
 - Column introspection via `sql.Rows.ColumnTypes()` (type name, scan type,
@@ -63,8 +63,6 @@ Query parameters:
 
 ## Not yet implemented
 
-- **Writing** LOBs via bound parameters (the LOB *create* flow). You can still
-  insert LOBs using SQL literals; reading LOBs is fully supported.
 - Batch execution — `database/sql` has no batch API, so batched inserts run as
   sequential prepared-statement executions (the standard Go pattern).
 

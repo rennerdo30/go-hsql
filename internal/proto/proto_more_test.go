@@ -126,11 +126,19 @@ func TestBitValueRoundTrip(t *testing.T) {
 }
 
 func TestLOBValueReturnsRef(t *testing.T) {
-	// Writing a LOB param is unsupported; reading returns a LobRef carrying the
-	// id and keeps the stream aligned.
+	// LOB params are encoded as server-side ids; reading returns a LobRef
+	// carrying the id and keeps the stream aligned.
 	col := ColumnType{Code: SQLBlob}
+	out := NewRowOutput()
+	if err := out.WriteValue(col, LobRef{ID: -7}); err != nil {
+		t.Fatalf("write BLOB ref: %v", err)
+	}
+	in := NewRowInput(out.Bytes())
+	if in.ReadU8() != 1 || in.ReadLong() != -7 {
+		t.Fatal("BLOB ref was not encoded as not-null id")
+	}
 	if err := (NewRowOutput()).WriteValue(col, []byte("x")); err == nil {
-		t.Fatal("expected error writing BLOB param")
+		t.Fatal("expected error writing raw BLOB param")
 	}
 	w := NewRowOutput()
 	w.WriteU8(1)       // not-null flag

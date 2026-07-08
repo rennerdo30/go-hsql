@@ -13,6 +13,99 @@ import (
 // are fetched in pieces rather than one enormous allocation/round-trip.
 const maxLobChunk = 1 << 20
 
+type pendingLob struct {
+	id     int64
+	isClob bool
+	bytes  []byte
+	chars  []uint16
+}
+
+func (c *conn) nextLobID() int64 {
+	id := c.lobIDSeq
+	c.lobIDSeq--
+	return id
+}
+
+// prepareLobParams converts CLOB/BLOB parameter payloads into temporary LOB
+// references. The EXECUTE frame binds only the id; the payload is sent as
+// LARGE_OBJECT_OP frames in the same transmission.
+func (c *conn) prepareLobParams(req *proto.Result) ([]pendingLob, error) {
+	if req.Mode != proto.ModeExecute || req.ParamMeta == nil {
+		return nil, nil
+	}
+	n := int(req.ParamMeta.ColumnCount)
+	if n == 0 {
+		return nil, nil
+	}
+	var lobs []pendingLob
+	for i := 0; i < n; i++ {
+		if i >= len(req.ParamValues) || req.ParamValues[i] == nil {
+			continue
+		}
+		switch req.ParamMeta.Types[i].Code {
+		case proto.SQLBlob:
+			if _, ok := req.ParamValues[i].(proto.LobRef); ok {
+				continue
+			}
+			b, err := lobBytes(req.ParamValues[i])
+			if err != nil {
+				return nil, err
+			}
+			id := c.nextLobID()
+			req.ParamValues[i] = proto.LobRef{ID: id}
+			lobs = append(lobs, pendingLob{id: id, bytes: b})
+		case proto.SQLClob:
+			if _, ok := req.ParamValues[i].(proto.LobRef); ok {
+				continue
+			}
+			s, err := lobString(req.ParamValues[i])
+			if err != nil {
+				return nil, err
+			}
+			id := c.nextLobID()
+			req.ParamValues[i] = proto.LobRef{ID: id, IsClob: true}
+			lobs = append(lobs, pendingLob{id: id, isClob: true, chars: utf16.Encode([]rune(s))})
+		}
+	}
+	return lobs, nil
+}
+
+func lobBytes(v any) ([]byte, error) {
+	switch x := v.(type) {
+	case []byte:
+		return x, nil
+	case string:
+		return []byte(x), nil
+	default:
+		return nil, fmt.Errorf("hsql: cannot bind %T as BLOB", v)
+	}
+}
+
+func lobString(v any) (string, error) {
+	switch x := v.(type) {
+	case string:
+		return x, nil
+	case []byte:
+		return string(x), nil
+	default:
+		return "", fmt.Errorf("hsql: cannot bind %T as CLOB", v)
+	}
+}
+
+func (c *conn) writeLobCreate(lob pendingLob) error {
+	if lob.isClob {
+		c.writeLobHeader(proto.LobReqCreateChars, lob.id)
+		writeI64(c.bw, 0)
+		writeI64(c.bw, int64(len(lob.chars)))
+		return writeUTF16(c.bw, lob.chars)
+	}
+	c.writeLobHeader(proto.LobReqCreateBytes, lob.id)
+	writeI64(c.bw, 0)
+	writeI64(c.bw, int64(len(lob.bytes)))
+	_, err := c.bw.Write(lob.bytes)
+	return err
+}
+
 // fetchLob resolves a LOB reference to a []byte (BLOB) or string (CLOB) by
 // querying its length and reading its content in chunks over the LOB
 // sub-protocol.
@@ -209,6 +302,15 @@ func writeI64(w interface{ Write([]byte) (int, error) }, v int64) {
 	var b [8]byte
 	binary.BigEndian.PutUint64(b[:], uint64(v))
 	_, _ = w.Write(b[:])
+}
+
+func writeUTF16(w interface{ Write([]byte) (int, error) }, chars []uint16) error {
+	raw := make([]byte, len(chars)*2)
+	for i, ch := range chars {
+		binary.BigEndian.PutUint16(raw[i*2:], ch)
+	}
+	_, err := w.Write(raw)
+	return err
 }
 
 func readI32(r io.Reader) int32 {

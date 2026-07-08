@@ -20,8 +20,6 @@ func TestLobRead(t *testing.T) {
 	}
 
 	// A CLOB payload larger than a trivial inline value, and a binary BLOB.
-	// Insert via SQL literals since LOB *parameter* binding is not yet
-	// supported; this exercises the LOB read path.
 	text := strings.Repeat("The quick brown fox. ", 500) // ~10 KB
 	bin := bytes.Repeat([]byte{0x00, 0x01, 0x02, 0xfd, 0xfe, 0xff}, 300)
 
@@ -43,6 +41,39 @@ func TestLobRead(t *testing.T) {
 	}
 	if !bytes.Equal(gotBin, bin) {
 		t.Fatalf("BLOB round-trip failed: got %d bytes, want %d", len(gotBin), len(bin))
+	}
+}
+
+func TestLobPreparedWrite(t *testing.T) {
+	db := openDB(t)
+	c := ctx(t)
+
+	if _, err := db.ExecContext(c, `CREATE TABLE lob_params (
+		id INTEGER,
+		body CLOB,
+		blob_data BLOB
+	)`); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	text := strings.Repeat("prepared 🧪 CLOB ", 300)
+	bin := bytes.Repeat([]byte{0x00, 0x7f, 0x80, 0xff}, 700)
+	if _, err := db.ExecContext(c, "INSERT INTO lob_params VALUES (?, ?, ?)", 1, text, bin); err != nil {
+		t.Fatalf("prepared insert: %v", err)
+	}
+
+	var (
+		gotText string
+		gotBin  []byte
+	)
+	if err := db.QueryRowContext(c, "SELECT body, blob_data FROM lob_params WHERE id = 1").Scan(&gotText, &gotBin); err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if gotText != text {
+		t.Fatalf("CLOB prepared round-trip failed: got %d chars, want %d", len(gotText), len(text))
+	}
+	if !bytes.Equal(gotBin, bin) {
+		t.Fatalf("BLOB prepared round-trip failed: got %d bytes, want %d", len(gotBin), len(bin))
 	}
 }
 

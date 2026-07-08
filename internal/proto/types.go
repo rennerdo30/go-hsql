@@ -114,7 +114,11 @@ func (w *RowOutput) WriteValue(c ColumnType, v any) error {
 		w.WriteInt(int32(len(b) * 8)) // bit length prefix, then raw bytes (no byte-len)
 		w.WriteRaw(b)
 	case SQLClob, SQLBlob:
-		return fmt.Errorf("hsql/proto: writing LOB parameters (type %d) is not yet supported", c.Code)
+		ref, ok := v.(LobRef)
+		if !ok {
+			return fmt.Errorf("hsql/proto: LOB parameter type %d requires LobRef, got %T", c.Code, v)
+		}
+		w.WriteLong(ref.ID)
 	default:
 		return fmt.Errorf("hsql/proto: unsupported write type code %d", c.Code)
 	}

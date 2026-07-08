@@ -22,6 +22,7 @@ type conn struct {
 
 	sessionID  int64
 	databaseID int32
+	lobIDSeq   int64
 
 	closed     bool
 	broken     bool // an I/O error or cancellation left the wire desynced
@@ -62,6 +63,7 @@ func connect(ctx context.Context, cfg *Config) (*conn, error) {
 		bw:         bufio.NewWriter(netConn),
 		br:         bufio.NewReader(netConn),
 		rowOut:     proto.NewRowOutput(),
+		lobIDSeq:   -1,
 		autocommit: true,
 	}
 
@@ -109,12 +111,22 @@ func (c *conn) handshake(ctx context.Context) error {
 
 // send serializes a request Result as a framed transmission and flushes it.
 func (c *conn) send(req *proto.Result) error {
+	lobs, err := c.prepareLobParams(req)
+	if err != nil {
+		return err
+	}
 	c.rowOut.Reset()
 	if err := req.EncodePayload(c.rowOut); err != nil {
 		return err
 	}
 	if err := proto.WriteFrame(c.bw, req.Mode, c.rowOut.Bytes()); err != nil {
 		return err
+	}
+	for _, lob := range lobs {
+		if err := c.writeLobCreate(lob); err != nil {
+			c.broken = true
+			return err
+		}
 	}
 	if err := proto.WriteTerminator(c.bw); err != nil {
 		return err
