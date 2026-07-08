@@ -157,6 +157,19 @@ func TestAdditionalTypes(t *testing.T) {
 	if array != "[1,2,3]" {
 		t.Fatalf("array = %q", array)
 	}
+
+	if _, err := db.ExecContext(c, "CREATE TABLE array_t (vals INTEGER ARRAY)"); err != nil {
+		t.Fatalf("create array table: %v", err)
+	}
+	if _, err := db.ExecContext(c, "INSERT INTO array_t VALUES (?)", NewArray(int64(4), int64(5), nil, int64(6))); err != nil {
+		t.Fatalf("insert array param: %v", err)
+	}
+	if err := db.QueryRowContext(c, "SELECT vals FROM array_t").Scan(&array); err != nil {
+		t.Fatalf("scan inserted array: %v", err)
+	}
+	if array != "[4,5,NULL,6]" {
+		t.Fatalf("inserted array = %q", array)
+	}
 }
 
 func TestResultPaging(t *testing.T) {

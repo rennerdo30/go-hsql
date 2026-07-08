@@ -56,6 +56,7 @@ Query parameters:
 - Writing **CLOB/BLOB** values via prepared-statement parameters.
   Use `hsql.NewBlob(reader, length)` / `hsql.NewClob(reader, length)` for
   streaming binds; pass a negative length when the stream length is unknown.
+- Structured ARRAY parameters via `hsql.NewArray(...)`.
 - **`LastInsertId`** via generated keys (works for `IDENTITY` columns on both
   direct and prepared inserts).
 - Column introspection via `sql.Rows.ColumnTypes()` (type name, scan type,
@@ -74,9 +75,7 @@ Query parameters:
   public helper API.
 - `hsqls://` uses Go's default TLS configuration; custom root CAs, server names,
   and insecure development TLS are not exposed in the DSN yet.
-- ARRAY result values scan as strings. Structured ARRAY parameter binding is not
-  exposed because `database/sql` does not pass arbitrary `[]any` values without a
-  driver-specific API.
+- ARRAY result values scan as strings.
 
 ## Development
 

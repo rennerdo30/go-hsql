@@ -112,6 +112,9 @@ func (c *conn) handshake(ctx context.Context) error {
 
 // send serializes a request Result as a framed transmission and flushes it.
 func (c *conn) send(req *proto.Result) error {
+	if err := c.prepareArrayParams(req); err != nil {
+		return err
+	}
 	lobs, err := c.prepareLobParams(req)
 	if err != nil {
 		return err

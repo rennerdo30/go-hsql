@@ -106,7 +106,7 @@ func (s *stmt) CheckNamedValue(nv *driver.NamedValue) error {
 
 func checkNamedValue(nv *driver.NamedValue) error {
 	switch nv.Value.(type) {
-	case Blob, *Blob, Clob, *Clob:
+	case Blob, *Blob, Clob, *Clob, Array, *Array:
 		return nil
 	default:
 		return driver.ErrSkip

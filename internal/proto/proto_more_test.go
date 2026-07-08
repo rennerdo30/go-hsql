@@ -145,6 +145,9 @@ func TestAdditionalValueTypes(t *testing.T) {
 		w.WriteU8(1)
 		w.WriteInt(v)
 	}
+	if err := w.WriteValue(ColumnType{Code: SQLArray, BaseCode: SQLInteger}, ArrayValue{Values: []any{int64(7), nil, int64(8)}}); err != nil {
+		t.Fatalf("write array param: %v", err)
+	}
 
 	r := NewRowInput(w.Bytes())
 	if got := r.ReadValue(ColumnType{Code: SQLGuid}); !bytes.Equal(got.([]byte), guid) {
@@ -161,6 +164,12 @@ func TestAdditionalValueTypes(t *testing.T) {
 	}
 	if got := r.ReadValue(ColumnType{Code: SQLArray, BaseCode: SQLInteger}); got != "[1,2,3]" {
 		t.Fatalf("array = %v", got)
+	}
+	if got := r.ReadValue(ColumnType{Code: SQLArray, BaseCode: SQLInteger}); got != "[7,NULL,8]" {
+		t.Fatalf("array param round-trip = %v", got)
+	}
+	if err := (NewRowOutput()).WriteValue(ColumnType{Code: SQLArray, BaseCode: SQLInteger}, []any{int64(1)}); err == nil {
+		t.Fatal("expected error writing raw ARRAY param")
 	}
 	if err := r.Err(); err != nil {
 		t.Fatalf("read additional types: %v", err)

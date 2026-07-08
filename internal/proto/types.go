@@ -111,6 +111,18 @@ func (w *RowOutput) WriteValue(c ColumnType, v any) error {
 		b := asBytes(v)
 		w.WriteInt(int32(len(b) * 8)) // bit length prefix, then raw bytes (no byte-len)
 		w.WriteRaw(b)
+	case SQLArray:
+		arr, ok := v.(ArrayValue)
+		if !ok {
+			return fmt.Errorf("hsql/proto: ARRAY parameter requires ArrayValue, got %T", v)
+		}
+		elemType := ColumnType{Code: c.BaseCode}
+		w.WriteInt(int32(len(arr.Values)))
+		for _, elem := range arr.Values {
+			if err := w.WriteValue(elemType, elem); err != nil {
+				return err
+			}
+		}
 	case SQLClob, SQLBlob:
 		ref, ok := v.(LobRef)
 		if !ok {
@@ -204,6 +216,12 @@ func (r *RowInput) ReadValue(c ColumnType) any {
 type Decimal struct {
 	Unscaled *big.Int
 	Scale    int32
+}
+
+// ArrayValue is the internal representation used to encode a SQL ARRAY
+// parameter. The element type comes from ColumnType.BaseCode.
+type ArrayValue struct {
+	Values []any
 }
 
 func dateSeconds(t time.Time) int64 {
