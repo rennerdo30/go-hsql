@@ -79,6 +79,7 @@ const (
 	TxSavepointNameRelease  = 4
 	TxCommitAndChain        = 6
 	TxRollbackAndChain      = 7
+	TxPrepareCommit         = 12 // PREPARECOMMIT: first phase of a 2PC
 )
 
 // SETCONNECTATTR attribute codes.

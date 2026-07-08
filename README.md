@@ -46,8 +46,10 @@ Query parameters:
 - Connect / authenticate / ping over the native protocol (compat version 2.x).
 - Direct statements (`db.Exec`, `db.Query`) and prepared statements with `?`
   parameters (`db.Prepare`, parameterized `Query`/`Exec`).
-- Transactions: `db.BeginTx` with commit/rollback, isolation levels, read-only.
+- Transactions: `db.BeginTx` with commit/rollback (binary `SETSESSIONATTR` /
+  `ENDTRAN`, matching the Java client), isolation levels, read-only.
   Driver-specific savepoint helpers are available through `db.Conn(ctx).Raw`.
+- Two-phase commit: `PrepareCommit(ctx)` via `db.Conn(ctx).Raw`.
 - Result-set block paging via `REQUESTDATA` for large results.
 - Type mapping: INTEGER, BIGINT, SMALLINT, TINYINT, REAL/FLOAT/DOUBLE, BOOLEAN,
   CHAR/VARCHAR (Java modified-UTF-8, full Unicode), DECIMAL/NUMERIC (as string,
@@ -58,8 +60,12 @@ Query parameters:
 - Writing **CLOB/BLOB** values via prepared-statement parameters.
   Use `hsql.NewBlob(reader, length)` / `hsql.NewClob(reader, length)` for
   streaming binds; pass a negative length when the stream length is unknown.
-- Structured ARRAY parameters via `hsql.NewArray(...)`.
-- Native direct-SQL batch execution via `db.Conn(ctx).Raw` and `ExecBatch`.
+- Structured ARRAY parameters via `hsql.NewArray(...)`; typed ARRAY result
+  scanning via `hsql.ScanArray(&slice)`.
+- Native batch execution via `db.Conn(ctx).Raw`: direct-SQL (`ExecBatch`) and
+  prepared-statement (`ExecPreparedBatch`) using `BATCHEXECDIRECT`/`BATCHEXECUTE`.
+- Statement cancellation: context cancel sends a protocol `SQLCANCEL` on a side
+  connection (like the Java client) so the server aborts the running statement.
 - **`LastInsertId`** via generated keys (works for `IDENTITY` columns on both
   direct and prepared inserts).
 - Column introspection via `sql.Rows.ColumnTypes()` (type name, scan type,
@@ -67,16 +73,25 @@ Query parameters:
 - Context cancellation / deadlines, and `ErrBadConn` handling for pool health.
 - Errors surface as `*hsql.Error` carrying `Message`, `SQLState`, `ErrorCode`.
 
-## Compatibility limits
+## Compatibility with the HSQLDB Java client
 
-- Prepared-statement native batch execution is not exposed yet; use direct
-  `ExecBatch` or sequential prepared `Exec` calls.
-- Stored-procedure OUT parameters are not exposed as a first-class API.
-  Ordinary `CALL` statements that return result sets or update counts use the
-  normal query/exec paths.
-- Two-phase commit has protocol constants but no driver-specific public helper
-  API.
-- ARRAY result values scan as strings.
+Interoperability with a real HSQLDB Java server is proven: the entire test suite
+runs against the actual `org.hsqldb` server. The wire protocol, transaction
+control, LOBs, batches, generated keys, cancellation, and 2PC use the same
+messages the reference Java client sends.
+
+Remaining differences (all either niche or with no `database/sql` equivalent):
+
+- **Scrollable / updatable result sets** (`UPDATE_RESULT`) — `database/sql` is
+  forward-only, so these have no equivalent and are not implemented.
+- **Stored-procedure OUT parameters** — `CALL` statements that return result
+  sets or update counts work via the normal paths; bound OUT parameters are not
+  exposed (also a `database/sql` limitation).
+- **ARRAY results** are delivered as text (`[a,b,c]`); use `hsql.ScanArray` for
+  typed slices. The text form is ambiguous for string elements containing
+  commas — use typed numeric/boolean arrays for lossless results.
+- **XA / distributed transactions** — single-connection 2PC (`PrepareCommit`) is
+  supported; the `javax.transaction` XA resource model has no Go equivalent.
 
 ## Development
 
