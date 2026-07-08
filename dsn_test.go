@@ -1,6 +1,9 @@
 package hsql
 
-import "testing"
+import (
+	"crypto/tls"
+	"testing"
+)
 
 func TestParseDSN(t *testing.T) {
 	t.Run("full", func(t *testing.T) {
@@ -48,12 +51,36 @@ func TestParseDSN(t *testing.T) {
 		}
 	})
 
+	t.Run("tls config", func(t *testing.T) {
+		if err := RegisterTLSConfig("test", &tls.Config{ServerName: "db.example.com"}); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { DeregisterTLSConfig("test") })
+		cfg, err := ParseDSN("hsqls://host/db?tlsconfig=test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.TLSConfigName != "test" || cfg.TLSConfig == nil || cfg.TLSConfig.ServerName != "db.example.com" {
+			t.Fatalf("tls config not applied: %+v", cfg)
+		}
+		cfg.TLSConfig.ServerName = "mutated"
+		cfg2, err := ParseDSN("hsqls://host/db?tlsconfig=test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg2.TLSConfig.ServerName != "db.example.com" {
+			t.Fatalf("tls config lookup should clone registered config, got %q", cfg2.TLSConfig.ServerName)
+		}
+	})
+
 	t.Run("errors", func(t *testing.T) {
 		bad := []string{
 			"mysql://host/db", // wrong scheme
 			"hsql://host",     // missing db alias
 			"hsql://host/db?tzoffset=nope",
 			"hsql://host/db?fetchsize=-1",
+			"hsql://host/db?tlsconfig=test",
+			"hsqls://host/db?tlsconfig=missing",
 			"hsql://host:notaport/db",
 		}
 		for _, dsn := range bad {

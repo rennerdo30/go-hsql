@@ -1,6 +1,7 @@
 package hsql
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net"
 	"net/url"
@@ -18,6 +19,8 @@ type Config struct {
 	Password        string
 	Database        string // server-side database alias (not a file path)
 	TLS             bool
+	TLSConfig       *tls.Config
+	TLSConfigName   string
 	Zone            string // session time zone id sent in CONNECT
 	TimeZoneSeconds int    // offset from UTC in seconds sent in CONNECT
 	FetchSize       int    // rows per result-set block (0 = server default)
@@ -29,7 +32,8 @@ type Config struct {
 //	hsqls://...   (same, over TLS)
 //
 // Recognized query parameters: zone (session time-zone id), tzoffset (seconds
-// from UTC), fetchsize (rows per block).
+// from UTC), fetchsize (rows per block), tlsconfig (registered TLS config name
+// for hsqls://).
 func ParseDSN(dsn string) (*Config, error) {
 	u, err := url.Parse(dsn)
 	if err != nil {
@@ -95,6 +99,17 @@ func ParseDSN(dsn string) (*Config, error) {
 			return nil, fmt.Errorf("hsql: invalid fetchsize %q", v)
 		}
 		cfg.FetchSize = n
+	}
+	if v := q.Get("tlsconfig"); v != "" {
+		if !cfg.TLS {
+			return nil, fmt.Errorf("hsql: tlsconfig requires hsqls://")
+		}
+		tlsCfg, ok := lookupTLSConfig(v)
+		if !ok {
+			return nil, fmt.Errorf("hsql: unknown TLS config %q", v)
+		}
+		cfg.TLSConfigName = v
+		cfg.TLSConfig = tlsCfg
 	}
 	return cfg, nil
 }

@@ -39,6 +39,7 @@ Query parameters:
 | `zone`      | session time-zone id sent at connect           | `UTC`   |
 | `tzoffset`  | session time-zone offset from UTC, in seconds  | `0`     |
 | `fetchsize` | rows per result-set block (0 = all at once)    | `0`     |
+| `tlsconfig` | registered TLS config name for `hsqls://`      | unset   |
 
 ## Supported features
 
@@ -73,8 +74,6 @@ Query parameters:
   count use the normal query/exec paths.
 - Savepoints and two-phase commit have protocol constants but no driver-specific
   public helper API.
-- `hsqls://` uses Go's default TLS configuration; custom root CAs, server names,
-  and insecure development TLS are not exposed in the DSN yet.
 - ARRAY result values scan as strings.
 
 ## Development

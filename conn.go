@@ -47,7 +47,16 @@ func connect(ctx context.Context, cfg *Config) (*conn, error) {
 	var netConn net.Conn
 	var err error
 	if cfg.TLS {
-		netConn, err = (&tls.Dialer{NetDialer: &d}).DialContext(ctx, "tcp", cfg.address())
+		tlsCfg := cfg.TLSConfig
+		if tlsCfg != nil {
+			tlsCfg = tlsCfg.Clone()
+		} else {
+			tlsCfg = &tls.Config{}
+		}
+		if tlsCfg.ServerName == "" {
+			tlsCfg.ServerName = cfg.Host
+		}
+		netConn, err = (&tls.Dialer{NetDialer: &d, Config: tlsCfg}).DialContext(ctx, "tcp", cfg.address())
 	} else {
 		netConn, err = d.DialContext(ctx, "tcp", cfg.address())
 	}
