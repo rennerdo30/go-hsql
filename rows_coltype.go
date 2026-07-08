@@ -12,6 +12,8 @@ import (
 // sql.Rows.ColumnTypes().
 var (
 	_ driver.RowsColumnTypeDatabaseTypeName = (*rows)(nil)
+	_ driver.RowsColumnTypeLength           = (*rows)(nil)
+	_ driver.RowsColumnTypePrecisionScale   = (*rows)(nil)
 	_ driver.RowsColumnTypeScanType         = (*rows)(nil)
 	_ driver.RowsColumnTypeNullable         = (*rows)(nil)
 )
@@ -52,6 +54,42 @@ func (r *rows) ColumnTypeNullable(index int) (nullable, ok bool) {
 		return true, true
 	default:
 		return false, false // unknown
+	}
+}
+
+// ColumnTypeLength returns the declared maximum length for variable-length
+// character, binary, bit, and LOB columns.
+func (r *rows) ColumnTypeLength(index int) (length int64, ok bool) {
+	if r.meta == nil || index >= len(r.meta.Columns) {
+		return 0, false
+	}
+	col := r.meta.Columns[index].Type
+	switch col.Code {
+	case proto.SQLChar, proto.SQLVarchar, proto.SQLBinary, proto.SQLVarbinary,
+		proto.SQLBit, proto.SQLBitVarying, proto.SQLBlob, proto.SQLClob:
+		if col.Precision < 0 {
+			return 0, false
+		}
+		return col.Precision, true
+	default:
+		return 0, false
+	}
+}
+
+// ColumnTypePrecisionScale returns DECIMAL/NUMERIC precision and scale.
+func (r *rows) ColumnTypePrecisionScale(index int) (precision, scale int64, ok bool) {
+	if r.meta == nil || index >= len(r.meta.Columns) {
+		return 0, 0, false
+	}
+	col := r.meta.Columns[index].Type
+	switch col.Code {
+	case proto.SQLDecimal, proto.SQLNumeric:
+		if col.Precision < 0 {
+			return 0, 0, false
+		}
+		return col.Precision, int64(col.Scale), true
+	default:
+		return 0, 0, false
 	}
 }
 

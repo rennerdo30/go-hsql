@@ -8,13 +8,13 @@ import (
 func TestColumnTypes(t *testing.T) {
 	db := openDB(t)
 	c := ctx(t)
-	if _, err := db.ExecContext(c, "CREATE TABLE ct (a INTEGER NOT NULL, b VARCHAR(30), d DOUBLE)"); err != nil {
+	if _, err := db.ExecContext(c, "CREATE TABLE ct (a INTEGER NOT NULL, b VARCHAR(30), d DOUBLE, n DECIMAL(12, 3))"); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if _, err := db.ExecContext(c, "INSERT INTO ct VALUES (1, 'x', 2.0)"); err != nil {
+	if _, err := db.ExecContext(c, "INSERT INTO ct VALUES (1, 'x', 2.0, 123.456)"); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
-	rows, err := db.QueryContext(c, "SELECT a, b, d FROM ct")
+	rows, err := db.QueryContext(c, "SELECT a, b, d, n FROM ct")
 	if err != nil {
 		t.Fatalf("query: %v", err)
 	}
@@ -24,7 +24,7 @@ func TestColumnTypes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("column types: %v", err)
 	}
-	if len(cts) != 3 {
+	if len(cts) != 4 {
 		t.Fatalf("got %d column types", len(cts))
 	}
 	if cts[0].DatabaseTypeName() != "INTEGER" {
@@ -35,6 +35,12 @@ func TestColumnTypes(t *testing.T) {
 	}
 	if st := cts[2].ScanType(); st == nil || st.Kind().String() != "float64" {
 		t.Errorf("col2 scan type = %v", st)
+	}
+	if length, ok := cts[1].Length(); !ok || length != 30 {
+		t.Errorf("col b length = %d, ok=%v; want 30,true", length, ok)
+	}
+	if precision, scale, ok := cts[3].DecimalSize(); !ok || precision != 12 || scale != 3 {
+		t.Errorf("col n decimal size = (%d,%d,%v), want (12,3,true)", precision, scale, ok)
 	}
 	// Nullability: column a is NOT NULL, b is nullable.
 	if nullable, ok := cts[0].Nullable(); ok && nullable {
