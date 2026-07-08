@@ -54,6 +54,8 @@ Query parameters:
 - Reading **CLOB/BLOB** values (resolved via the `LARGE_OBJECT_OP` sub-protocol,
   fetched in chunks).
 - Writing **CLOB/BLOB** values via prepared-statement parameters.
+  Use `hsql.NewBlob(reader, length)` / `hsql.NewClob(reader, length)` for
+  streaming binds; pass a negative length when the stream length is unknown.
 - **`LastInsertId`** via generated keys (works for `IDENTITY` columns on both
   direct and prepared inserts).
 - Column introspection via `sql.Rows.ColumnTypes()` (type name, scan type,

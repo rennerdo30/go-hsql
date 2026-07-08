@@ -38,6 +38,7 @@ var (
 	_ driver.Pinger             = (*conn)(nil)
 	_ driver.SessionResetter    = (*conn)(nil)
 	_ driver.Validator          = (*conn)(nil)
+	_ driver.NamedValueChecker  = (*conn)(nil)
 )
 
 // connect dials the server and performs the handshake + login.
@@ -243,6 +244,12 @@ func (c *conn) Ping(ctx context.Context) error {
 // Prepare implements driver.Conn.
 func (c *conn) Prepare(query string) (driver.Stmt, error) {
 	return c.PrepareContext(context.Background(), query)
+}
+
+// CheckNamedValue lets database/sql pass driver-specific streaming LOB
+// parameters through for implicit prepared-statement execution.
+func (c *conn) CheckNamedValue(nv *driver.NamedValue) error {
+	return checkNamedValue(nv)
 }
 
 // Close closes the connection, attempting a graceful DISCONNECT first.

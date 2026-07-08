@@ -77,6 +77,43 @@ func TestLobPreparedWrite(t *testing.T) {
 	}
 }
 
+func TestLobPreparedStreamingWrite(t *testing.T) {
+	db := openDB(t)
+	c := ctx(t)
+
+	if _, err := db.ExecContext(c, `CREATE TABLE lob_streams (
+		id INTEGER,
+		body CLOB,
+		blob_data BLOB
+	)`); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	text := strings.Repeat("streamed 🧪 CLOB ", 400)
+	bin := bytes.Repeat([]byte{0x10, 0x20, 0x30, 0x40, 0xff}, 900)
+	if _, err := db.ExecContext(c, "INSERT INTO lob_streams VALUES (?, ?, ?)",
+		1,
+		NewClob(strings.NewReader(text), -1),
+		NewBlob(bytes.NewReader(bin), -1),
+	); err != nil {
+		t.Fatalf("streaming insert: %v", err)
+	}
+
+	var (
+		gotText string
+		gotBin  []byte
+	)
+	if err := db.QueryRowContext(c, "SELECT body, blob_data FROM lob_streams WHERE id = 1").Scan(&gotText, &gotBin); err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if gotText != text {
+		t.Fatalf("streaming CLOB round-trip failed: got %d chars, want %d", len(gotText), len(text))
+	}
+	if !bytes.Equal(gotBin, bin) {
+		t.Fatalf("streaming BLOB round-trip failed: got %d bytes, want %d", len(gotBin), len(bin))
+	}
+}
+
 func TestLobNull(t *testing.T) {
 	db := openDB(t)
 	c := ctx(t)

@@ -1,6 +1,7 @@
 package hsql
 
 import (
+	"bufio"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -13,11 +14,39 @@ import (
 // are fetched in pieces rather than one enormous allocation/round-trip.
 const maxLobChunk = 1 << 20
 
+// Blob is a streaming BLOB parameter. Use NewBlob to bind an io.Reader to a
+// BLOB column without first materializing the whole value as []byte.
+type Blob struct {
+	Reader io.Reader
+	Length int64 // bytes; negative means unknown length and uses segmented create
+}
+
+// NewBlob returns a streaming BLOB parameter. If length is negative, the reader
+// is sent in chunks until EOF.
+func NewBlob(r io.Reader, length int64) Blob {
+	return Blob{Reader: r, Length: length}
+}
+
+// Clob is a streaming CLOB parameter. The reader must produce UTF-8 text.
+type Clob struct {
+	Reader io.Reader
+	Length int64 // UTF-16 code units; negative means unknown length and uses segmented create
+}
+
+// NewClob returns a streaming CLOB parameter. If length is negative, the reader
+// is decoded as UTF-8 and sent in chunks until EOF.
+func NewClob(r io.Reader, length int64) Clob {
+	return Clob{Reader: r, Length: length}
+}
+
 type pendingLob struct {
-	id     int64
-	isClob bool
-	bytes  []byte
-	chars  []uint16
+	id         int64
+	isClob     bool
+	bytes      []byte
+	chars      []uint16
+	blobReader io.Reader
+	clobReader io.Reader
+	length     int64
 }
 
 func (c *conn) nextLobID() int64 {
@@ -47,63 +76,193 @@ func (c *conn) prepareLobParams(req *proto.Result) ([]pendingLob, error) {
 			if _, ok := req.ParamValues[i].(proto.LobRef); ok {
 				continue
 			}
-			b, err := lobBytes(req.ParamValues[i])
+			lob, err := c.blobParam(req.ParamValues[i])
 			if err != nil {
 				return nil, err
 			}
 			id := c.nextLobID()
 			req.ParamValues[i] = proto.LobRef{ID: id}
-			lobs = append(lobs, pendingLob{id: id, bytes: b})
+			lob.id = id
+			lobs = append(lobs, lob)
 		case proto.SQLClob:
 			if _, ok := req.ParamValues[i].(proto.LobRef); ok {
 				continue
 			}
-			s, err := lobString(req.ParamValues[i])
+			lob, err := c.clobParam(req.ParamValues[i])
 			if err != nil {
 				return nil, err
 			}
 			id := c.nextLobID()
 			req.ParamValues[i] = proto.LobRef{ID: id, IsClob: true}
-			lobs = append(lobs, pendingLob{id: id, isClob: true, chars: utf16.Encode([]rune(s))})
+			lob.id = id
+			lobs = append(lobs, lob)
 		}
 	}
 	return lobs, nil
 }
 
-func lobBytes(v any) ([]byte, error) {
+func (c *conn) blobParam(v any) (pendingLob, error) {
 	switch x := v.(type) {
 	case []byte:
-		return x, nil
+		return pendingLob{bytes: x}, nil
 	case string:
-		return []byte(x), nil
+		return pendingLob{bytes: []byte(x)}, nil
+	case Blob:
+		if x.Reader == nil {
+			return pendingLob{}, fmt.Errorf("hsql: nil BLOB reader")
+		}
+		return pendingLob{blobReader: x.Reader, length: x.Length}, nil
+	case *Blob:
+		if x == nil || x.Reader == nil {
+			return pendingLob{}, fmt.Errorf("hsql: nil BLOB reader")
+		}
+		return pendingLob{blobReader: x.Reader, length: x.Length}, nil
 	default:
-		return nil, fmt.Errorf("hsql: cannot bind %T as BLOB", v)
+		return pendingLob{}, fmt.Errorf("hsql: cannot bind %T as BLOB", v)
 	}
 }
 
-func lobString(v any) (string, error) {
+func (c *conn) clobParam(v any) (pendingLob, error) {
 	switch x := v.(type) {
 	case string:
-		return x, nil
+		return pendingLob{isClob: true, chars: utf16.Encode([]rune(x))}, nil
 	case []byte:
-		return string(x), nil
+		return pendingLob{isClob: true, chars: utf16.Encode([]rune(string(x)))}, nil
+	case Clob:
+		if x.Reader == nil {
+			return pendingLob{}, fmt.Errorf("hsql: nil CLOB reader")
+		}
+		return pendingLob{isClob: true, clobReader: x.Reader, length: x.Length}, nil
+	case *Clob:
+		if x == nil || x.Reader == nil {
+			return pendingLob{}, fmt.Errorf("hsql: nil CLOB reader")
+		}
+		return pendingLob{isClob: true, clobReader: x.Reader, length: x.Length}, nil
 	default:
-		return "", fmt.Errorf("hsql: cannot bind %T as CLOB", v)
+		return pendingLob{}, fmt.Errorf("hsql: cannot bind %T as CLOB", v)
 	}
 }
 
 func (c *conn) writeLobCreate(lob pendingLob) error {
 	if lob.isClob {
-		c.writeLobHeader(proto.LobReqCreateChars, lob.id)
-		writeI64(c.bw, 0)
-		writeI64(c.bw, int64(len(lob.chars)))
-		return writeUTF16(c.bw, lob.chars)
+		if lob.clobReader != nil {
+			return c.writeLobCreateCharsFromReader(lob)
+		}
+		return c.writeLobCharsFrame(proto.LobReqCreateChars, lob.id, 0, lob.chars)
 	}
-	c.writeLobHeader(proto.LobReqCreateBytes, lob.id)
-	writeI64(c.bw, 0)
-	writeI64(c.bw, int64(len(lob.bytes)))
-	_, err := c.bw.Write(lob.bytes)
+	if lob.blobReader != nil {
+		return c.writeLobCreateBytesFromReader(lob)
+	}
+	return c.writeLobBytesFrame(proto.LobReqCreateBytes, lob.id, 0, lob.bytes)
+}
+
+func (c *conn) writeLobBytesFrame(subType int32, id, off int64, b []byte) error {
+	c.writeLobHeader(subType, id)
+	writeI64(c.bw, off)
+	writeI64(c.bw, int64(len(b)))
+	_, err := c.bw.Write(b)
 	return err
+}
+
+func (c *conn) writeLobCharsFrame(subType int32, id, off int64, chars []uint16) error {
+	c.writeLobHeader(subType, id)
+	writeI64(c.bw, off)
+	writeI64(c.bw, int64(len(chars)))
+	return writeUTF16(c.bw, chars)
+}
+
+func (c *conn) writeLobCreateBytesFromReader(lob pendingLob) error {
+	if lob.length >= 0 {
+		c.writeLobHeader(proto.LobReqCreateBytes, lob.id)
+		writeI64(c.bw, 0)
+		writeI64(c.bw, lob.length)
+		_, err := io.CopyN(c.bw, lob.blobReader, lob.length)
+		return err
+	}
+	buf := make([]byte, maxLobChunk)
+	off := int64(0)
+	first := true
+	for {
+		n, err := lob.blobReader.Read(buf)
+		if n > 0 {
+			subType := proto.LobReqSetBytes
+			if first {
+				subType = proto.LobReqCreateBytes
+				first = false
+			}
+			if werr := c.writeLobBytesFrame(subType, lob.id, off, buf[:n]); werr != nil {
+				return werr
+			}
+			off += int64(n)
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+	}
+	if first {
+		return c.writeLobBytesFrame(proto.LobReqCreateBytes, lob.id, 0, nil)
+	}
+	return nil
+}
+
+func (c *conn) writeLobCreateCharsFromReader(lob pendingLob) error {
+	br := bufio.NewReader(lob.clobReader)
+	off := int64(0)
+	first := true
+	for {
+		chars, err := readUTF16Chunk(br, maxLobChunk)
+		if len(chars) > 0 {
+			subType := proto.LobReqSetChars
+			if first {
+				subType = proto.LobReqCreateChars
+				first = false
+			}
+			if werr := c.writeLobCharsFrame(subType, lob.id, off, chars); werr != nil {
+				return werr
+			}
+			off += int64(len(chars))
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+	}
+	if first {
+		return c.writeLobCharsFrame(proto.LobReqCreateChars, lob.id, 0, nil)
+	}
+	return nil
+}
+
+func readUTF16Chunk(r *bufio.Reader, maxUnits int) ([]uint16, error) {
+	runes := make([]rune, 0, maxUnits)
+	units := 0
+	for units < maxUnits {
+		ch, _, err := r.ReadRune()
+		if err != nil {
+			if err == io.EOF && len(runes) > 0 {
+				return utf16.Encode(runes), nil
+			}
+			return nil, err
+		}
+		needed := 1
+		if ch > 0xffff {
+			needed = 2
+		}
+		if units+needed > maxUnits {
+			if err := r.UnreadRune(); err != nil {
+				return nil, err
+			}
+			break
+		}
+		runes = append(runes, ch)
+		units += needed
+	}
+	return utf16.Encode(runes), nil
 }
 
 // fetchLob resolves a LOB reference to a []byte (BLOB) or string (CLOB) by

@@ -44,9 +44,10 @@ type stmt struct {
 }
 
 var (
-	_ driver.Stmt             = (*stmt)(nil)
-	_ driver.StmtExecContext  = (*stmt)(nil)
-	_ driver.StmtQueryContext = (*stmt)(nil)
+	_ driver.Stmt              = (*stmt)(nil)
+	_ driver.StmtExecContext   = (*stmt)(nil)
+	_ driver.StmtQueryContext  = (*stmt)(nil)
+	_ driver.NamedValueChecker = (*stmt)(nil)
 )
 
 // NumInput returns the number of bound parameters.
@@ -95,6 +96,21 @@ func (s *stmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driv
 		return nil, err
 	}
 	return s.conn.rowsFromResponse(res), nil
+}
+
+// CheckNamedValue lets database/sql pass driver-specific streaming LOB
+// parameters through without converting them to the standard driver.Value set.
+func (s *stmt) CheckNamedValue(nv *driver.NamedValue) error {
+	return checkNamedValue(nv)
+}
+
+func checkNamedValue(nv *driver.NamedValue) error {
+	switch nv.Value.(type) {
+	case Blob, *Blob, Clob, *Clob:
+		return nil
+	default:
+		return driver.ErrSkip
+	}
 }
 
 // execute sends an EXECUTE request binding the given arguments.
