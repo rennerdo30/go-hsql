@@ -56,6 +56,7 @@ type Result struct {
 	TimeZoneSeconds int32 // CONNECT updateCount
 	DatabaseID      int32
 	SessionID       int64
+	RandomID        int32  // CONNECTACK session random id (authorizes SQLCANCEL)
 	ClientProps     string // CONNECTACK mainString
 	Message         string // ERROR mainString
 	SQLState        string // ERROR subString
@@ -149,7 +150,9 @@ func (r *Result) EncodePayload(w *RowOutput) error {
 		if err := r.writeParams(w); err != nil {
 			return err
 		}
-	case ModeBatchExecDirect:
+	case ModeBatchExecDirect, ModeBatchExecute, ModeSetSessionAttr:
+		// Identical layout in org.hsqldb.result.Result.write: header, metadata,
+		// then a simple row block.
 		w.WriteInt(r.UpdateCount)
 		w.WriteInt(r.FetchSize)
 		w.WriteLong(r.StatementID)
@@ -167,6 +170,12 @@ func (r *Result) EncodePayload(w *RowOutput) error {
 		w.WriteLong(r.ID)
 	case ModeFreeStmt:
 		w.WriteLong(r.StatementID)
+	case ModeSQLCancel:
+		w.WriteInt(r.DatabaseID)
+		w.WriteLong(r.SessionID)
+		w.WriteLong(r.StatementID)
+		w.WriteInt(r.RandomID)
+		w.WriteString(r.SQL)
 	case ModeSetConnectAttr:
 		w.WriteInt(r.ConnectAttr)
 		if r.ConnectAttr == ConnectAttrSavepointName {
@@ -182,6 +191,9 @@ func (r *Result) EncodePayload(w *RowOutput) error {
 	return nil
 }
 
+// writeMetadata encodes a ResultMetaData, the inverse of readMetadata, covering
+// every metadata type the client needs to send (SIMPLE/UPDATE for batch-direct,
+// PARAM for prepared batch, RESULT for session attributes).
 func writeMetadata(w *RowOutput, m *Metadata) {
 	if m == nil {
 		w.WriteInt(MetaSimpleResult)
@@ -195,9 +207,81 @@ func writeMetadata(w *RowOutput, m *Metadata) {
 		for _, t := range m.Types {
 			w.WriteDataTypeSimple(t)
 		}
-	default:
-		// Request encoding currently only needs simple/update metadata.
+	case MetaGeneratedIdx:
+		for _, idx := range m.ColIndexes {
+			w.WriteInt(idx)
+		}
+	case MetaGeneratedName:
+		for _, l := range m.Labels {
+			w.WriteString(l)
+		}
+	case MetaParam:
+		for i := 0; i < int(m.ColumnCount); i++ {
+			w.WriteDataType(m.Types[i])
+			w.WriteString(m.Columns[i].Label)
+			w.WriteU8(m.Columns[i].Attrs)
+		}
+	case MetaResult:
+		w.WriteInt(m.ExtendedCount)
+		for i := 0; i < int(m.ExtendedCount); i++ {
+			w.WriteDataType(m.Types[i])
+		}
+		for i := 0; i < int(m.ColumnCount); i++ {
+			c := m.Columns[i]
+			w.WriteString(c.Label)
+			w.WriteString(c.Catalog)
+			w.WriteString(c.Schema)
+			w.WriteString(c.Table)
+			w.WriteString(c.Name)
+			w.WriteU8(c.Attrs)
+		}
+		if m.ColumnCount != m.ExtendedCount {
+			for _, idx := range m.ColIndexes {
+				w.WriteInt(idx)
+			}
+		}
 	}
+}
+
+// SessionAttrMetadata returns the fixed 4-column metadata used by
+// SETSESSIONATTR rows (INFO_ID int, INFO_INTEGER int, INFO_BOOLEAN bool,
+// INFO_VARCHAR varchar), matching Result.sessionAttributesMetaData.
+func SessionAttrMetadata() *Metadata {
+	types := []ColumnType{
+		{Code: SQLInteger}, {Code: SQLInteger}, {Code: SQLBoolean}, {Code: SQLVarchar},
+	}
+	cols := make([]Column, attrPosLimit)
+	for i := range cols {
+		cols[i].Type = types[i]
+	}
+	return &Metadata{
+		MetaType:      MetaResult,
+		ColumnCount:   attrPosLimit,
+		ExtendedCount: attrPosLimit,
+		Types:         types,
+		Columns:       cols,
+	}
+}
+
+// NewSessionAttrRequest builds a SETSESSIONATTR request that sets a single
+// session attribute. Exactly one of intVal/boolVal/strVal is typically set,
+// matching the attribute's kind.
+func NewSessionAttrRequest(attrID int32, intVal *int32, boolVal *bool, strVal *string) *Result {
+	row := make([]any, attrPosLimit)
+	row[0] = int64(attrID)
+	if intVal != nil {
+		row[1] = int64(*intVal)
+	}
+	if boolVal != nil {
+		row[2] = *boolVal
+	}
+	if strVal != nil {
+		row[3] = *strVal
+	}
+	r := NewResult(ModeSetSessionAttr)
+	r.Meta = SessionAttrMetadata()
+	r.BatchRows = [][]any{row}
+	return r
 }
 
 func (r *Result) writeSimpleRows(w *RowOutput) error {
@@ -252,7 +336,7 @@ func DecodeResult(mode Mode, payload []byte) (*Result, error) {
 		r.SessionID = in.ReadLong()
 		r.DatabaseName = in.ReadString()
 		r.ClientProps = in.ReadString()
-		_ = in.ReadInt() // trailing generateKeys, unused
+		r.RandomID = in.ReadInt() // session random id (used to authorize SQLCANCEL)
 	case ModeError, ModeWarning:
 		r.Message = in.ReadString()
 		r.SQLState = in.ReadString()

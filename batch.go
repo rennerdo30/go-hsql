@@ -28,6 +28,43 @@ func (c *conn) ExecBatch(ctx context.Context, sqls []string) ([]int64, error) {
 	if err != nil {
 		return nil, err
 	}
+	return batchCounts(res), nil
+}
+
+// ExecPreparedBatch prepares query once and executes it for each row of
+// parameters using HSQLDB's native BATCHEXECUTE protocol, returning one update
+// count per row. Intended for use through database/sql Conn.Raw. Each element of
+// argRows holds the positional parameter values for one execution.
+func (c *conn) ExecPreparedBatch(ctx context.Context, query string, argRows [][]any) ([]int64, error) {
+	if c.closed || c.broken {
+		return nil, driver.ErrBadConn
+	}
+	st, err := c.PrepareContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	s := st.(*stmt)
+	defer s.Close()
+
+	req := proto.NewResult(proto.ModeBatchExecute)
+	req.StatementID = s.id
+	// BATCHEXECUTE carries SIMPLE metadata (parameter type codes only), matching
+	// Result.newPreparedExecuteRequest in the Java client.
+	req.Meta = &proto.Metadata{
+		MetaType:    proto.MetaSimpleResult,
+		ColumnCount: s.paramMeta.ColumnCount,
+		Types:       s.paramMeta.Types,
+	}
+	req.BatchRows = argRows
+	res, err := c.execCtx(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return batchCounts(res), nil
+}
+
+// batchCounts extracts per-statement update counts from a BATCHEXECRESPONSE.
+func batchCounts(res *proto.Result) []int64 {
 	counts := make([]int64, 0)
 	if res.RowSet != nil {
 		for _, row := range res.RowSet.Rows {
@@ -42,5 +79,5 @@ func (c *conn) ExecBatch(ctx context.Context, sqls []string) ([]int64, error) {
 			}
 		}
 	}
-	return counts, nil
+	return counts
 }

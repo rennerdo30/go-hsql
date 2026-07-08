@@ -5,10 +5,13 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"fmt"
+
+	"github.com/rennerdo30/go-hsql/internal/proto"
 )
 
-// tx implements driver.Tx. Transactions are driven with SQL session commands
-// (SET AUTOCOMMIT / COMMIT / ROLLBACK), which HSQLDB accepts directly.
+// tx implements driver.Tx. Transactions use the same binary protocol messages as
+// the reference HSQLDB Java client: SETSESSIONATTR to toggle autocommit /
+// read-only / isolation, and ENDTRAN to commit or roll back.
 type tx struct {
 	conn *conn
 }
@@ -22,12 +25,16 @@ func (c *conn) Begin() (driver.Tx, error) {
 
 // BeginTx implements driver.ConnBeginTx.
 func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
-	if c.closed {
+	if c.closed || c.broken {
 		return nil, driver.ErrBadConn
 	}
 	if !c.autocommit {
 		return nil, fmt.Errorf("hsql: nested transactions are not supported")
 	}
+	// Isolation and read-only are transaction-scoped via SET TRANSACTION so they
+	// reset automatically at transaction end, matching database/sql's
+	// per-transaction TxOptions (the binary INFO_ISOLATION / INFO_READONLY
+	// attributes are connection-scoped and would leak into later transactions).
 	if lvl := sql.IsolationLevel(opts.Isolation); lvl != sql.LevelDefault {
 		iso, err := isolationSQL(lvl)
 		if err != nil {
@@ -42,7 +49,9 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 			return nil, err
 		}
 	}
-	if _, err := c.execCtx(ctx, c.newExecDirect("SET AUTOCOMMIT FALSE")); err != nil {
+	// Autocommit and commit/rollback use the binary protocol, matching the Java
+	// client's hot path.
+	if err := c.setSessionAttrBool(ctx, proto.AttrAutocommit, false); err != nil {
 		return nil, err
 	}
 	c.autocommit = false
@@ -50,31 +59,46 @@ func (c *conn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, e
 }
 
 // Commit commits the transaction and restores autocommit mode.
-func (t *tx) Commit() error { return t.finish("COMMIT") }
+func (t *tx) Commit() error { return t.finish(proto.TxCommit) }
 
 // Rollback rolls back the transaction and restores autocommit mode.
-func (t *tx) Rollback() error { return t.finish("ROLLBACK") }
+func (t *tx) Rollback() error { return t.finish(proto.TxRollback) }
 
-func (t *tx) finish(verb string) error {
+func (t *tx) finish(txType int32) error {
 	c := t.conn
-	if c.closed {
+	if c.closed || c.broken {
 		return driver.ErrBadConn
 	}
-	if _, err := c.exec(c.newExecDirect(verb)); err != nil {
-		// Even on error, try to restore autocommit so the pooled connection
-		// is usable again.
-		_, _ = c.exec(c.newExecDirect("SET AUTOCOMMIT TRUE"))
+	if err := c.endTran(txType); err != nil {
+		// Even on error, try to restore autocommit so the pooled connection is
+		// usable again.
+		_ = c.setSessionAttrBool(context.Background(), proto.AttrAutocommit, true)
 		c.autocommit = true
 		return err
 	}
-	if _, err := c.exec(c.newExecDirect("SET AUTOCOMMIT TRUE")); err != nil {
+	if err := c.setSessionAttrBool(context.Background(), proto.AttrAutocommit, true); err != nil {
 		return err
 	}
 	c.autocommit = true
 	return nil
 }
 
-// isolationSQL maps a sql.IsolationLevel to its HSQLDB SQL keyword.
+// endTran sends an ENDTRAN request (commit/rollback).
+func (c *conn) endTran(txType int32) error {
+	req := proto.NewResult(proto.ModeEndTran)
+	req.TxType = txType
+	_, err := c.exec(req)
+	return err
+}
+
+// setSessionAttrBool sets a boolean session attribute via SETSESSIONATTR.
+func (c *conn) setSessionAttrBool(ctx context.Context, attrID int32, v bool) error {
+	_, err := c.execCtx(ctx, proto.NewSessionAttrRequest(attrID, nil, &v, nil))
+	return err
+}
+
+// isolationSQL maps a sql.IsolationLevel to its HSQLDB SQL keyword for a
+// transaction-scoped SET TRANSACTION ISOLATION LEVEL statement.
 func isolationSQL(lvl sql.IsolationLevel) (string, error) {
 	switch lvl {
 	case sql.LevelReadUncommitted:

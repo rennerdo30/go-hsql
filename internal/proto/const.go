@@ -86,6 +86,27 @@ const (
 	ConnectAttrSavepointName int32 = 10027
 )
 
+// Session attribute ids (org.hsqldb.SessionInterface.Attributes), used as the
+// INFO_ID value in a SETSESSIONATTR row.
+const (
+	AttrIsolation          int32 = 0
+	AttrAutocommit         int32 = 1
+	AttrConnectionReadonly int32 = 2
+	AttrCatalog            int32 = 3
+	AttrTimezone           int32 = 4
+)
+
+// Session-attribute row column count (AttributePos.INFO_LIMIT).
+const attrPosLimit = 4
+
+// Transaction isolation levels on the wire (org.hsqldb.SessionInterface).
+const (
+	TxReadUncommitted int32 = 1
+	TxReadCommitted   int32 = 2
+	TxRepeatableRead  int32 = 4
+	TxSerializable    int32 = 8
+)
+
 // Statement return types (org.hsqldb.StatementTypes). Written as the
 // statementReturnType byte in EXECDIRECT / PREPARE.
 const (

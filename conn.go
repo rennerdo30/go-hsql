@@ -20,9 +20,11 @@ type conn struct {
 	br      *bufio.Reader
 	rowOut  *proto.RowOutput
 
-	sessionID  int64
-	databaseID int32
-	lobIDSeq   int64
+	sessionID   int64
+	databaseID  int32
+	randomID    int32
+	lobIDSeq    int64
+	serverProps map[string]string
 
 	closed     bool
 	broken     bool // an I/O error or cancellation left the wire desynced
@@ -116,6 +118,8 @@ func (c *conn) handshake(ctx context.Context) error {
 	}
 	c.sessionID = res.SessionID
 	c.databaseID = res.DatabaseID
+	c.randomID = res.RandomID
+	c.serverProps = parseServerProperties(res.ClientProps)
 	return nil
 }
 
@@ -232,6 +236,9 @@ func (c *conn) watchCancel(ctx context.Context) func() {
 	go func() {
 		select {
 		case <-ctx.Done():
+			// Ask the server to abort the running statement (Java-client
+			// parity), then force a deadline to unblock our in-flight read.
+			c.fireCancel()
 			_ = c.netConn.SetDeadline(time.Now())
 		case <-done:
 		}
