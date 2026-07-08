@@ -50,10 +50,10 @@ func TestColumnTypesWide(t *testing.T) {
 			}
 			seen++
 		}
-		_ = ct.ScanType()               // exercise scanType mapping
-		_, _ = ct.Nullable()            // exercise nullability
-		_, _ = ct.Length()              // exercise length
-		_, _, _ = ct.DecimalSize()      // exercise precision/scale
+		_ = ct.ScanType()          // exercise scanType mapping
+		_, _ = ct.Nullable()       // exercise nullability
+		_, _ = ct.Length()         // exercise length
+		_, _, _ = ct.DecimalSize() // exercise precision/scale
 	}
 	if seen != len(want) {
 		t.Fatalf("matched %d columns, want %d", seen, len(want))
