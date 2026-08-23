@@ -60,8 +60,18 @@ Query parameters:
 - Writing **CLOB/BLOB** values via prepared-statement parameters.
   Use `hsql.NewBlob(reader, length)` / `hsql.NewClob(reader, length)` for
   streaming binds; pass a negative length when the stream length is unknown.
-- Structured ARRAY parameters via `hsql.NewArray(...)`; typed ARRAY result
-  scanning via `hsql.ScanArray(&slice)`.
+- Structured ARRAY parameters via `hsql.NewArray(...)`; lossless typed ARRAY
+  result scanning via `hsql.ScanArray(&slice)` (string elements are quoted and
+  escaped in the text form, so commas, quotes and the literal NULL round-trip).
+- Stored-procedure **OUT / INOUT parameters** via the standard `sql.Out`
+  wrapper on `CALL` statements; procedures returning result sets deliver them
+  through `Query` (with `NextResultSet` for multiple).
+- **Updatable result sets** (`UPDATE_RESULT` sub-protocol) via
+  `db.Conn(ctx).Raw`: `QueryUpdatable` opens an updatable cursor whose rows can
+  be updated, deleted and inserted in place (JDBC `CONCUR_UPDATABLE` parity).
+- Session introspection via `db.Conn(ctx).Raw`: `SessionInfo` reports the
+  server-side isolation level, autocommit, read-only state, catalog and time
+  zone over the native `GETSESSIONATTR` protocol.
 - Native batch execution via `db.Conn(ctx).Raw`: direct-SQL (`ExecBatch`) and
   prepared-statement (`ExecPreparedBatch`) using `BATCHEXECDIRECT`/`BATCHEXECUTE`.
 - Statement cancellation: context cancel sends a protocol `SQLCANCEL` on a side
@@ -80,18 +90,22 @@ runs against the actual `org.hsqldb` server. The wire protocol, transaction
 control, LOBs, batches, generated keys, cancellation, and 2PC use the same
 messages the reference Java client sends.
 
-Remaining differences (all either niche or with no `database/sql` equivalent):
+Feature parity notes:
 
-- **Scrollable / updatable result sets** (`UPDATE_RESULT`) — `database/sql` is
-  forward-only, so these have no equivalent and are not implemented.
-- **Stored-procedure OUT parameters** — `CALL` statements that return result
-  sets or update counts work via the normal paths; bound OUT parameters are not
-  exposed (also a `database/sql` limitation).
-- **ARRAY results** are delivered as text (`[a,b,c]`); use `hsql.ScanArray` for
-  typed slices. The text form is ambiguous for string elements containing
-  commas — use typed numeric/boolean arrays for lossless results.
+- **Updatable result sets** (`UPDATE_RESULT`) are supported through the
+  driver-specific `QueryUpdatable` API (via `Conn.Raw`), since `database/sql`
+  itself is forward-only/read-only. As in JDBC, the query must be an updatable
+  single-table SELECT (no ORDER BY, DISTINCT, GROUP BY, aggregates or joins) or
+  the server downgrades the cursor and `QueryUpdatable` returns an error.
+- **Stored-procedure OUT / INOUT parameters** are supported with `sql.Out`.
+- **ARRAY results** are delivered in a lossless text form: numeric, boolean and
+  NULL elements are bare, strings are quoted/escaped, binary is hex, temporal
+  values are quoted RFC 3339. `hsql.ScanArray` parses it into typed slices
+  (`[]int64`, `[]string`, `[]float64`, `[]bool`, `[]time.Time`, `[][]byte`,
+  `[]any`, ...).
 - **XA / distributed transactions** — single-connection 2PC (`PrepareCommit`) is
-  supported; the `javax.transaction` XA resource model has no Go equivalent.
+  supported; the `javax.transaction` XA resource model has no Go equivalent, so
+  the XA wrapper objects of the Java client are out of scope.
 
 ## Development
 

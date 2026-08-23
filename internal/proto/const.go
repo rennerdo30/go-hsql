@@ -87,6 +87,44 @@ const (
 	ConnectAttrSavepointName int32 = 10027
 )
 
+// UPDATE_RESULT cursor action types (org.hsqldb.StatementTypes, carried as the
+// action int in an UPDATE_RESULT request).
+const (
+	ActionUpdateCursor int32 = 91 // StatementTypes.UPDATE_CURSOR
+	ActionDeleteCursor int32 = 18 // StatementTypes.DELETE_CURSOR
+	ActionInsertCursor int32 = 55 // StatementTypes.INSERT
+)
+
+// Result-set property bits (org.hsqldb.result.ResultProperties). rsProperties
+// is a bit-packed byte sent with PREPARE/EXECDIRECT and echoed back by the
+// server with the effective capabilities of the result.
+const (
+	RSReturnable byte = 1 << 0
+	RSHoldable   byte = 1 << 1
+	RSScrollable byte = 1 << 2
+	RSUpdatable  byte = 1 << 3
+	RSSensitive  byte = 1 << 4
+	RSIsHeld     byte = 1 << 5
+)
+
+// Parameter modes (org.hsqldb.SchemaObject.ParameterModes), carried in the high
+// nibble of a PARAM_METADATA column's attrs byte.
+const (
+	ParamModeUnknown byte = 0
+	ParamModeIn      byte = 1
+	ParamModeInOut   byte = 2
+	ParamModeOut     byte = 4
+)
+
+// Updatable-result system column offsets relative to the visible column count
+// (org.hsqldb.result.ResultMetaData.SysOffsets). An updatable result's extended
+// row carries these extra columns after the visible ones.
+const (
+	SysOffsetRowID     = 0
+	SysOffsetRowStatus = 1
+	SysOffsetRowNum    = 2
+)
+
 // Session attribute ids (org.hsqldb.SessionInterface.Attributes), used as the
 // INFO_ID value in a SETSESSIONATTR row.
 const (

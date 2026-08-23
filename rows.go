@@ -90,18 +90,36 @@ func (r *rows) Next(dest []driver.Value) error {
 		n = len(r.meta.Columns)
 	}
 	for i := 0; i < n; i++ {
-		v := row[i]
-		if ref, ok := v.(proto.LobRef); ok {
-			// Resolve the LOB payload on demand.
-			resolved, err := r.conn.fetchLob(ref)
-			if err != nil {
-				return err
-			}
-			v = resolved
+		v, err := r.conn.resolveValue(row[i])
+		if err != nil {
+			return err
 		}
 		dest[i] = driver.Value(v)
 	}
 	return nil
+}
+
+// resolveValue converts a decoded wire value into a driver.Value: LOB
+// references are fetched on demand and structured ARRAY values are rendered in
+// their lossless text form (resolving any LOB elements first).
+func (c *conn) resolveValue(v any) (any, error) {
+	switch x := v.(type) {
+	case proto.LobRef:
+		return c.fetchLob(x)
+	case proto.ArrayValue:
+		for i, elem := range x.Values {
+			if ref, ok := elem.(proto.LobRef); ok {
+				resolved, err := c.fetchLob(ref)
+				if err != nil {
+					return nil, err
+				}
+				x.Values[i] = resolved
+			}
+		}
+		return encodeArrayText(x.Values), nil
+	default:
+		return v, nil
+	}
 }
 
 // fetchMore requests the next block of rows when the current one is exhausted

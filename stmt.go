@@ -2,6 +2,7 @@ package hsql
 
 import (
 	"context"
+	"database/sql"
 	"database/sql/driver"
 	"fmt"
 
@@ -105,18 +106,27 @@ func (s *stmt) CheckNamedValue(nv *driver.NamedValue) error {
 }
 
 func checkNamedValue(nv *driver.NamedValue) error {
-	switch nv.Value.(type) {
+	switch v := nv.Value.(type) {
 	case Blob, *Blob, Clob, *Clob, Array, *Array:
 		return nil
+	case sql.Out:
+		return checkOutValue(v)
 	default:
 		return driver.ErrSkip
 	}
 }
 
-// execute sends an EXECUTE request binding the given arguments.
+// execute sends an EXECUTE request binding the given arguments. When OUT or
+// INOUT parameters (sql.Out) are bound and the server answers with a
+// CALL_RESPONSE, the returned parameter values are written back to the
+// sql.Out destinations.
 func (s *stmt) execute(ctx context.Context, args []driver.NamedValue) (*proto.Result, error) {
 	if s.conn.closed || s.conn.broken {
 		return nil, driver.ErrBadConn
+	}
+	values, outs, err := splitOutParams(namedToValues(args))
+	if err != nil {
+		return nil, err
 	}
 	req := proto.NewResult(proto.ModeExecute)
 	req.StatementID = s.id
@@ -124,8 +134,15 @@ func (s *stmt) execute(ctx context.Context, args []driver.NamedValue) (*proto.Re
 	req.RSProperties = proto.DefaultRSProperties
 	req.FetchSize = int32(s.conn.cfg.FetchSize)
 	req.ParamMeta = s.paramMeta
-	req.ParamValues = namedToValues(args)
-	return s.conn.execCtx(ctx, req)
+	req.ParamValues = values
+	res, err := s.conn.execCtx(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.conn.applyOutParams(res, outs); err != nil {
+		return nil, err
+	}
+	return res, nil
 }
 
 // namedToValues flattens ordered NamedValue args into a positional slice.

@@ -59,41 +59,35 @@ func (c *conn) nextLobID() int64 {
 // references. The EXECUTE frame binds only the id; the payload is sent as
 // LARGE_OBJECT_OP frames in the same transmission.
 func (c *conn) prepareLobParams(req *proto.Result) ([]pendingLob, error) {
-	if req.Mode != proto.ModeExecute || req.ParamMeta == nil {
-		return nil, nil
-	}
-	n := int(req.ParamMeta.ColumnCount)
-	if n == 0 {
-		return nil, nil
-	}
+	types, values := requestParamSlots(req)
 	var lobs []pendingLob
-	for i := 0; i < n; i++ {
-		if i >= len(req.ParamValues) || req.ParamValues[i] == nil {
+	for i := range types {
+		if i >= len(values) || values[i] == nil {
 			continue
 		}
-		switch req.ParamMeta.Types[i].Code {
+		switch types[i].Code {
 		case proto.SQLBlob:
-			if _, ok := req.ParamValues[i].(proto.LobRef); ok {
+			if _, ok := values[i].(proto.LobRef); ok {
 				continue
 			}
-			lob, err := c.blobParam(req.ParamValues[i])
+			lob, err := c.blobParam(values[i])
 			if err != nil {
 				return nil, err
 			}
 			id := c.nextLobID()
-			req.ParamValues[i] = proto.LobRef{ID: id}
+			values[i] = proto.LobRef{ID: id}
 			lob.id = id
 			lobs = append(lobs, lob)
 		case proto.SQLClob:
-			if _, ok := req.ParamValues[i].(proto.LobRef); ok {
+			if _, ok := values[i].(proto.LobRef); ok {
 				continue
 			}
-			lob, err := c.clobParam(req.ParamValues[i])
+			lob, err := c.clobParam(values[i])
 			if err != nil {
 				return nil, err
 			}
 			id := c.nextLobID()
-			req.ParamValues[i] = proto.LobRef{ID: id, IsClob: true}
+			values[i] = proto.LobRef{ID: id, IsClob: true}
 			lob.id = id
 			lobs = append(lobs, lob)
 		}

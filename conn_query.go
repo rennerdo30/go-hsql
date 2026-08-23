@@ -70,6 +70,23 @@ func resultFromResponse(res *proto.Result) driver.Result {
 // rowsFromResponse builds a driver.Rows from an EXEC/EXECDIRECT response. A
 // non-result response (e.g. an update count) yields an empty, column-less Rows.
 func (c *conn) rowsFromResponse(res *proto.Result) driver.Rows {
+	if res != nil && res.Mode == proto.ModeCallResponse {
+		// A CALL_RESPONSE's own row carries the procedure's parameter values,
+		// not result data; result sets the procedure returned arrive chained.
+		for i, chained := range res.Chained {
+			if !isRowsResult(chained) {
+				continue
+			}
+			r := newRows(c, chained)
+			for _, more := range res.Chained[i+1:] {
+				if isRowsResult(more) {
+					r.next = append(r.next, more)
+				}
+			}
+			return r
+		}
+		return &rows{conn: c, done: true}
+	}
 	if isRowsResult(res) {
 		return newRows(c, res)
 	}
@@ -81,7 +98,7 @@ func isRowsResult(res *proto.Result) bool {
 		return false
 	}
 	switch res.Mode {
-	case proto.ModeData, proto.ModeDataHead, proto.ModeGenerated, proto.ModeCallResponse:
+	case proto.ModeData, proto.ModeDataHead, proto.ModeGenerated:
 		return res.Meta != nil && res.RowSet != nil
 	default:
 		return false

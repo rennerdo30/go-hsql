@@ -23,6 +23,11 @@ type Column struct {
 	Attrs   byte
 }
 
+// ParamMode returns the parameter mode for a PARAM_METADATA column. The attrs
+// byte packs the mode in its high nibble and nullability in the low two bits
+// (ResultMetaData.decodeParamColumnAttrs).
+func (c Column) ParamMode() byte { return (c.Attrs >> 4) & 0x0f }
+
 // Metadata is a decoded ResultMetaData. Types holds one entry per extended
 // column (used to decode row values); Columns holds the visible columns.
 type Metadata struct {
@@ -77,6 +82,10 @@ type Result struct {
 	TxType        int32
 	SavepointName string
 	ConnectAttr   int32
+
+	// UPDATE_RESULT cursor action (ActionUpdateCursor / ActionDeleteCursor /
+	// ActionInsertCursor)
+	ActionType int32
 
 	// data
 	Meta      *Metadata
@@ -185,6 +194,18 @@ func (r *Result) EncodePayload(w *RowOutput) error {
 		w.WriteLong(r.ID)
 		w.WriteInt(r.UpdateCount) // row offset to resume from
 		w.WriteInt(r.FetchSize)
+	case ModeUpdateResult:
+		// Result.write UPDATE_RESULT: cursor id, action type, UPDATE metadata
+		// (simple type codes), then one row of extended values via writeSimple.
+		w.WriteLong(r.ID)
+		w.WriteInt(r.ActionType)
+		writeMetadata(w, r.Meta)
+		if err := r.writeSimpleRows(w); err != nil {
+			return err
+		}
+	case ModeGetSessionAttr:
+		// The requested attribute id travels in the statementReturnType byte.
+		w.WriteU8(r.StatementReturnType)
 	default:
 		return fmt.Errorf("hsql/proto: cannot encode request mode %d", r.Mode)
 	}
@@ -374,7 +395,20 @@ func DecodeResult(mode Mode, payload []byte) (*Result, error) {
 		r.QueryTimeout = in.ReadShort()
 		r.Meta = readMetadata(in)
 		r.RowSet = readRowSetSimple(in, r.Meta)
-	case ModeSetSessionAttr, ModeSetConnectAttr, ModeGetSessionAttr:
+	case ModeSetSessionAttr:
+		// Sent by the server in reply to GETSESSIONATTR, carrying one row of
+		// session attributes in the BATCHEXECRESPONSE layout. A bare frame (no
+		// payload) is a plain acknowledgement.
+		if len(payload) == 0 {
+			break
+		}
+		r.UpdateCount = in.ReadInt()
+		r.FetchSize = in.ReadInt()
+		r.StatementID = in.ReadLong()
+		r.QueryTimeout = in.ReadShort()
+		r.Meta = readMetadata(in)
+		r.RowSet = readRowSetSimple(in, r.Meta)
+	case ModeSetConnectAttr, ModeGetSessionAttr:
 		// Acknowledgement of a session/connection attribute change (e.g. the
 		// server's reply to "SET AUTOCOMMIT ..."). The frame bytes are already
 		// consumed by the framing layer; we don't need the payload contents.

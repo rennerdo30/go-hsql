@@ -77,6 +77,8 @@ func (w *RowOutput) WriteValue(c ColumnType, v any) error {
 	}
 	w.WriteU8(1)
 	switch c.Code {
+	case SQLAllTypes:
+		// ALL_TYPES writes no payload beyond the presence flag (Java parity).
 	case SQLChar, SQLVarchar:
 		w.WriteString(asString(v))
 	case SQLTinyint, SQLSmallint:
@@ -151,6 +153,11 @@ func (r *RowInput) ReadValue(c ColumnType) any {
 		return nil
 	}
 	switch c.Code {
+	case SQLAllTypes:
+		// ALL_TYPES values (the untyped system columns of an updatable result)
+		// carry no payload beyond the presence flag; they always decode to nil
+		// (RowInputBase.readData, RowOutputBase.writeData).
+		return nil
 	case SQLChar, SQLVarchar:
 		return r.ReadString()
 	case SQLTinyint, SQLSmallint:
@@ -227,10 +234,13 @@ type Decimal struct {
 	Scale    int32
 }
 
-// ArrayValue is the internal representation used to encode a SQL ARRAY
-// parameter. The element type comes from ColumnType.BaseCode.
+// ArrayValue is the structured representation of a SQL ARRAY, used both to
+// encode ARRAY parameters and to carry decoded ARRAY results. For parameters
+// the element type comes from ColumnType.BaseCode; for results ElemCode records
+// the base type the elements were decoded with.
 type ArrayValue struct {
-	Values []any
+	Values   []any
+	ElemCode TypeCode
 }
 
 func dateSeconds(t time.Time) int64 {
@@ -356,29 +366,24 @@ func formatDaySecondInterval(code TypeCode, seconds int64, nanos int32) string {
 	return out
 }
 
-func (r *RowInput) readArray(c ColumnType) string {
+// readArray decodes a structured ARRAY value: an int32 element count followed
+// by that many values of the array's base type. The result is returned as an
+// ArrayValue so no element information is lost; the driver layer decides how to
+// surface it (text form for plain Scan, typed elements for ScanArray).
+func (r *RowInput) readArray(c ColumnType) ArrayValue {
 	n := int(r.ReadInt())
 	if r.err != nil || n < 0 {
-		return ""
+		return ArrayValue{}
 	}
 	elemType := ColumnType{Code: c.BaseCode}
-	parts := make([]string, n)
+	values := make([]any, n)
 	for i := 0; i < n; i++ {
-		v := r.ReadValue(elemType)
-		if v == nil {
-			parts[i] = "NULL"
-			continue
-		}
-		switch x := v.(type) {
-		case []byte:
-			parts[i] = fmt.Sprintf("%x", x)
-		case string:
-			parts[i] = x
-		default:
-			parts[i] = fmt.Sprint(x)
+		values[i] = r.ReadValue(elemType)
+		if r.err != nil {
+			break
 		}
 	}
-	return "[" + strings.Join(parts, ",") + "]"
+	return ArrayValue{Values: values, ElemCode: c.BaseCode}
 }
 
 // --- value coercion helpers (inputs come from database/sql driver values) ---

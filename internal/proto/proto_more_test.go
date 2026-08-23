@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"math/big"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -162,10 +163,10 @@ func TestAdditionalValueTypes(t *testing.T) {
 	if got := r.ReadValue(ColumnType{Code: SQLIntervalDayToSecond}); got != "3 04:05:06.789" {
 		t.Fatalf("day-second interval = %v", got)
 	}
-	if got := r.ReadValue(ColumnType{Code: SQLArray, BaseCode: SQLInteger}); got != "[1,2,3]" {
+	if got := r.ReadValue(ColumnType{Code: SQLArray, BaseCode: SQLInteger}).(ArrayValue); !reflect.DeepEqual(got.Values, []any{int64(1), int64(2), int64(3)}) || got.ElemCode != SQLInteger {
 		t.Fatalf("array = %v", got)
 	}
-	if got := r.ReadValue(ColumnType{Code: SQLArray, BaseCode: SQLInteger}); got != "[7,NULL,8]" {
+	if got := r.ReadValue(ColumnType{Code: SQLArray, BaseCode: SQLInteger}).(ArrayValue); !reflect.DeepEqual(got.Values, []any{int64(7), nil, int64(8)}) {
 		t.Fatalf("array param round-trip = %v", got)
 	}
 	if err := (NewRowOutput()).WriteValue(ColumnType{Code: SQLArray, BaseCode: SQLInteger}, []any{int64(1)}); err == nil {
